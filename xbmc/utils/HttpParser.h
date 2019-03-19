@@ -1,24 +1,30 @@
 /*
- * This code implements parsing of HTTP requests.
- * This code was written by Steve Hanov in 2009, no copyright is claimed.
- * This code is in the public domain.
- * Code was taken from http://refactormycode.com/codes/778-an-efficient-http-parser
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ *
+ *  This code implements parsing of HTTP requests.
+ *  This code was written by Steve Hanov in 2009, no copyright is claimed.
+ *  This code is in the public domain.
+ *  Code was taken from http://refactormycode.com/codes/778-an-efficient-http-parser
  */
 
-#ifndef HTTPPARSER_H_
-#define HTTPPARSER_H_
+#pragma once
+
 #include <stdlib.h>
 #include <vector>
 #include <string>
 #include <string.h>
 
-// A class to incrementally parse an HTTP header as it comes in. It 
-// lets you know when it has received all required bytes, as specified 
+// A class to incrementally parse an HTTP header as it comes in. It
+// lets you know when it has received all required bytes, as specified
 // by the content-length header (if present). If there is no content-length,
 // it will stop reading after the final "\n\r".
 //
 // Example usage:
-// 
+//
 //    HttpParser parser;
 //    HttpParser::status_t status;
 //
@@ -36,7 +42,6 @@
 class HttpParser
 {
 public:
-    HttpParser();
     ~HttpParser();
 
     enum status_t {
@@ -47,29 +52,28 @@ public:
 
     status_t addBytes( const char* bytes, unsigned len );
 
-    const char* getMethod();
-    const char* getUri();
-    const char* getQueryString();
-    const char* getBody();
+    const char* getMethod() const;
+    const char* getUri() const;
+    const char* getQueryString() const;
+    const char* getBody() const;
     // key should be in lower case when looking up.
-    const char* getValue( const char* key );
-    unsigned getContentLength();
+    const char* getValue( const char* key ) const;
+    unsigned getContentLength() const;
 
 private:
     void parseHeader();
     bool parseRequestLine();
 
     std::string _data;
-    unsigned _headerStart;
-    unsigned _bodyStart;
-    unsigned _parsedTo;
-    int _state;
-    unsigned _keyIndex;
-    unsigned _valueIndex;
-    unsigned _contentLength;
-    unsigned _contentStart;
-    unsigned _uriIndex;
-    
+    unsigned _headerStart = 0;
+    unsigned _parsedTo =  0 ;
+    int _state =  0 ;
+    unsigned _keyIndex = 0;
+    unsigned _valueIndex = 0;
+    unsigned _contentLength = 0;
+    unsigned _contentStart = 0;
+    unsigned _uriIndex = 0;
+
     typedef std::vector<unsigned> IntArray;
     IntArray _keys;
 
@@ -89,6 +93,6 @@ private:
         p_error=12 // here an error has occurred and the parse failed.
     };
 
-    status_t _status;
+    status_t _status =  Incomplete ;
 };
-#endif//HTTPPARSER_H_
+

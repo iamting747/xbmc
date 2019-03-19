@@ -1,39 +1,21 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-
-#include "system.h"
 #include "VirtualDirectory.h"
 #include "DirectoryFactory.h"
+#include "URL.h"
 #include "Util.h"
 #include "utils/URIUtils.h"
+#include "utils/StringUtils.h"
 #include "Directory.h"
-#include "DirectoryCache.h"
 #include "SourcesDirectory.h"
 #include "storage/MediaManager.h"
-#include "File.h"
 #include "FileItem.h"
-#ifdef _WIN32
-#include "WIN32Util.h"
-#endif
 
 using namespace XFILE;
 
@@ -44,11 +26,9 @@ CVirtualDirectory::CVirtualDirectory(void)
 {
   m_flags = DIR_FLAG_ALLOW_PROMPT;
   m_allowNonLocalSources = true;
-  m_allowThreads = true;
 }
 
-CVirtualDirectory::~CVirtualDirectory(void)
-{}
+CVirtualDirectory::~CVirtualDirectory(void) = default;
 
 /*!
  \brief Add shares to the virtual directory
@@ -64,25 +44,35 @@ void CVirtualDirectory::SetSources(const VECSOURCES& vecSources)
  \brief Retrieve the shares or the content of a directory.
  \param strPath Specifies the path of the directory to retrieve or pass an empty string to get the shares.
  \param items Content of the directory.
- \return Returns \e true, if directory access is successfull.
+ \return Returns \e true, if directory access is successful.
  \note If \e strPath is an empty string, the share \e items have thumbnails and icons set, else the thumbnails
     and icons have to be set manually.
  */
 
-bool CVirtualDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items)
+bool CVirtualDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
-  return GetDirectory(strPath,items,true);
+  return GetDirectory(url, items, true, false);
 }
-bool CVirtualDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items, bool bUseFileDirectories)
+
+bool CVirtualDirectory::GetDirectory(const CURL& url, CFileItemList &items, bool bUseFileDirectories, bool keepImpl)
 {
+  std::string strPath = url.Get();
   int flags = m_flags;
   if (!bUseFileDirectories)
     flags |= DIR_FLAG_NO_FILE_DIRS;
-  if (!strPath.IsEmpty() && strPath != "files://")
-    return CDirectory::GetDirectory(strPath, items, m_strFileMask, flags, m_allowThreads);
+  if (!strPath.empty() && strPath != "files://")
+  {
+    CURL realURL = URIUtils::SubstitutePath(url);
+    if (!m_pDir)
+      m_pDir.reset(CDirectoryFactory::Create(realURL));
+    bool ret = CDirectory::GetDirectory(strPath, m_pDir, items, m_strFileMask, flags);
+    if (!keepImpl)
+      m_pDir.reset();
+    return ret;
+  }
 
   // if strPath is blank, clear the list (to avoid parent items showing up)
-  if (strPath.IsEmpty())
+  if (strPath.empty())
     items.Clear();
 
   // return the root listing
@@ -95,6 +85,12 @@ bool CVirtualDirectory::GetDirectory(const CStdString& strPath, CFileItemList &i
   return dir.GetDirectory(shares, items);
 }
 
+void CVirtualDirectory::CancelDirectory()
+{
+  if (m_pDir)
+    m_pDir->CancelDirectory();
+}
+
 /*!
  \brief Is the share \e strPath in the virtual directory.
  \param strPath Share to test
@@ -102,17 +98,16 @@ bool CVirtualDirectory::GetDirectory(const CStdString& strPath, CFileItemList &i
  \note The parameter \e strPath can not be a share with directory. Eg. "iso9660://dir" will return \e false.
     It must be "iso9660://".
  */
-bool CVirtualDirectory::IsSource(const CStdString& strPath, VECSOURCES *sources, CStdString *name) const
+bool CVirtualDirectory::IsSource(const std::string& strPath, VECSOURCES *sources, std::string *name) const
 {
-  CStdString strPathCpy = strPath;
-  strPathCpy.TrimRight("/");
-  strPathCpy.TrimRight("\\");
+  std::string strPathCpy = strPath;
+  StringUtils::TrimRight(strPathCpy, "/\\");
 
   // just to make sure there's no mixed slashing in share/default defines
   // ie. f:/video and f:\video was not be recognised as the same directory,
   // resulting in navigation to a lower directory then the share.
   if(URIUtils::IsDOSPath(strPathCpy))
-    strPathCpy.Replace("/", "\\");
+    StringUtils::Replace(strPathCpy, '/', '\\');
 
   VECSOURCES shares;
   if (sources)
@@ -122,11 +117,10 @@ bool CVirtualDirectory::IsSource(const CStdString& strPath, VECSOURCES *sources,
   for (int i = 0; i < (int)shares.size(); ++i)
   {
     const CMediaSource& share = shares.at(i);
-    CStdString strShare = share.strPath;
-    strShare.TrimRight("/");
-    strShare.TrimRight("\\");
+    std::string strShare = share.strPath;
+    StringUtils::TrimRight(strShare, "/\\");
     if(URIUtils::IsDOSPath(strShare))
-      strShare.Replace("/", "\\");
+      StringUtils::Replace(strShare, '/', '\\');
     if (strShare == strPathCpy)
     {
       if (name)
@@ -144,7 +138,7 @@ bool CVirtualDirectory::IsSource(const CStdString& strPath, VECSOURCES *sources,
  \note The parameter \e path CAN be a share with directory. Eg. "iso9660://dir" will
        return the same as "iso9660://".
  */
-bool CVirtualDirectory::IsInSource(const CStdString &path) const
+bool CVirtualDirectory::IsInSource(const std::string &path) const
 {
   bool isSourceName;
   VECSOURCES shares;
@@ -156,12 +150,13 @@ bool CVirtualDirectory::IsInSource(const CStdString &path) const
     for (unsigned int i = 0; i < shares.size(); i++)
     {
       CMediaSource &share = shares[i];
-      if (URIUtils::IsOnDVD(share.strPath) && share.strPath.Equals(path.Left(share.strPath.GetLength())))
+      if (URIUtils::IsOnDVD(share.strPath) &&
+          URIUtils::PathHasParent(path, share.strPath))
         return true;
     }
     return false;
   }
-  // TODO: May need to handle other special cases that GetMatchingSource() fails on
+  //! @todo May need to handle other special cases that GetMatchingSource() fails on
   return (iShare > -1);
 }
 

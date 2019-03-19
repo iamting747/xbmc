@@ -1,35 +1,23 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIViewStatePictures.h"
 #include "FileItem.h"
-#include "ViewState.h"
-#include "settings/GUISettings.h"
-#include "settings/AdvancedSettings.h"
+#include "ServiceBroker.h"
+#include "view/ViewState.h"
+#include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "filesystem/Directory.h"
-#include "filesystem/PluginDirectory.h"
-#include "Util.h"
 #include "guilib/LocalizeStrings.h"
-#include "guilib/Key.h"
+#include "guilib/WindowIDs.h"
+#include "view/ViewStateSettings.h"
+#include "utils/FileExtensionProvider.h"
 
 using namespace XFILE;
 using namespace ADDON;
@@ -38,9 +26,9 @@ CGUIViewStateWindowPictures::CGUIViewStateWindowPictures(const CFileItemList& it
 {
   if (items.IsVirtualDirectoryRoot())
   {
-    AddSortMethod(SORT_METHOD_LABEL, 551, LABEL_MASKS());
-    AddSortMethod(SORT_METHOD_DRIVE_TYPE, 564, LABEL_MASKS());
-    SetSortMethod(SORT_METHOD_LABEL);
+    AddSortMethod(SortByLabel, 551, LABEL_MASKS());
+    AddSortMethod(SortByDriveType, 564, LABEL_MASKS());
+    SetSortMethod(SortByLabel);
 
     SetViewAsControl(DEFAULT_VIEW_LIST);
 
@@ -48,40 +36,56 @@ CGUIViewStateWindowPictures::CGUIViewStateWindowPictures(const CFileItemList& it
   }
   else
   {
-    AddSortMethod(SORT_METHOD_LABEL, 551, LABEL_MASKS("%L", "%I", "%L", ""));  // Filename, Size | Foldername, empty
-    AddSortMethod(SORT_METHOD_SIZE, 553, LABEL_MASKS("%L", "%I", "%L", "%I"));  // Filename, Size | Foldername, Size
-    AddSortMethod(SORT_METHOD_DATE, 552, LABEL_MASKS("%L", "%J", "%L", "%J"));  // Filename, Date | Foldername, Date
-    AddSortMethod(SORT_METHOD_FILE, 561, LABEL_MASKS("%L", "%I", "%L", ""));  // Filename, Size | FolderName, empty
+    AddSortMethod(SortByLabel, 551, LABEL_MASKS("%L", "%I", "%L", ""));  // Filename, Size | Foldername, empty
+    AddSortMethod(SortBySize, 553, LABEL_MASKS("%L", "%I", "%L", "%I"));  // Filename, Size | Foldername, Size
+    AddSortMethod(SortByDate, 552, LABEL_MASKS("%L", "%J", "%L", "%J"));  // Filename, Date | Foldername, Date
+    AddSortMethod(SortByDateTaken, 577, LABEL_MASKS("%L", "%t", "%L", "%J"));  // Filename, DateTaken | Foldername, Date
+    AddSortMethod(SortByFile, 561, LABEL_MASKS("%L", "%I", "%L", ""));  // Filename, Size | FolderName, empty
 
-    SetSortMethod(g_settings.m_viewStatePictures.m_sortMethod);
-    SetViewAsControl(g_settings.m_viewStatePictures.m_viewMode);
-    SetSortOrder(g_settings.m_viewStatePictures.m_sortOrder);
+    const CViewState *viewState = CViewStateSettings::GetInstance().Get("pictures");
+    SetSortMethod(viewState->m_sortDescription);
+    SetViewAsControl(viewState->m_viewMode);
+    SetSortOrder(viewState->m_sortDescription.sortOrder);
   }
   LoadViewState(items.GetPath(), WINDOW_PICTURES);
 }
 
 void CGUIViewStateWindowPictures::SaveViewState()
 {
-  SaveViewToDb(m_items.GetPath(), WINDOW_PICTURES, &g_settings.m_viewStatePictures);
+  SaveViewToDb(m_items.GetPath(), WINDOW_PICTURES, CViewStateSettings::GetInstance().Get("pictures"));
 }
 
-CStdString CGUIViewStateWindowPictures::GetLockType()
+std::string CGUIViewStateWindowPictures::GetLockType()
 {
   return "pictures";
 }
 
-CStdString CGUIViewStateWindowPictures::GetExtensions()
+std::string CGUIViewStateWindowPictures::GetExtensions()
 {
-  if (g_guiSettings.GetBool("pictures.showvideos"))
-    return g_settings.m_pictureExtensions+"|"+g_settings.m_videoExtensions;
+  std::string extensions = CServiceBroker::GetFileExtensionProvider().GetPictureExtensions();
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_PICTURES_SHOWVIDEOS))
+    extensions += "|" + CServiceBroker::GetFileExtensionProvider().GetVideoExtensions();
 
-  return g_settings.m_pictureExtensions;
+  return extensions;
 }
 
 VECSOURCES& CGUIViewStateWindowPictures::GetSources()
 {
+  VECSOURCES *pictureSources = CMediaSourceSettings::GetInstance().GetSources("pictures");
+
+  // Guard against source type not existing
+  if (pictureSources == nullptr)
+  {
+    static VECSOURCES empty;
+    return empty;
+  }
+
+  // Picture add-ons
   AddAddonsSource("image", g_localizeStrings.Get(1039), "DefaultAddonPicture.png");
-  AddOrReplace(g_settings.m_pictureSources, CGUIViewState::GetSources());
-  return g_settings.m_pictureSources;
+
+  // Global sources
+  AddOrReplace(*pictureSources, CGUIViewState::GetSources());
+
+  return *pictureSources;
 }
 

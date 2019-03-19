@@ -1,40 +1,31 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include <windows.h>
-#include "threads/platform/win/Win32Exception.h"
+#include <process.h>
+#include "platform/win32/WIN32Util.h"
+#include "utils/log.h"
 
 void CThread::SpawnThread(unsigned stacksize)
 {
   // Create in the suspended state, so that no matter the thread priorities and scheduled order, the handle will be assigned
   // before the new thread exits.
-  m_ThreadOpaque.handle = CreateThread(NULL, stacksize, (LPTHREAD_START_ROUTINE)&staticThread, this, CREATE_SUSPENDED, &m_ThreadId);
+  unsigned threadId;
+  m_ThreadOpaque.handle = (HANDLE)_beginthreadex(NULL, stacksize, &staticThread, this, CREATE_SUSPENDED, &threadId);
   if (m_ThreadOpaque.handle == NULL)
   {
-    if (logger) logger->Log(LOGERROR, "%s - fatal error %d creating thread", __FUNCTION__, GetLastError());
+    CLog::Log(LOGERROR, "%s - fatal error %d creating thread", __FUNCTION__, GetLastError());
     return;
   }
+  m_ThreadId = threadId;
 
   if (ResumeThread(m_ThreadOpaque.handle) == -1)
-    if (logger) logger->Log(LOGERROR, "%s - fatal error %d resuming thread", __FUNCTION__, GetLastError());
+    CLog::Log(LOGERROR, "%s - fatal error %d resuming thread", __FUNCTION__, GetLastError());
 
 }
 
@@ -70,11 +61,18 @@ void CThread::SetThreadInfo()
   __except(EXCEPTION_EXECUTE_HANDLER)
   {
   }
+
+  CWIN32Util::SetThreadLocalLocale(true); // avoid crashing with setlocale(), see https://connect.microsoft.com/VisualStudio/feedback/details/794122
 }
 
 ThreadIdentifier CThread::GetCurrentThreadId()
 {
   return ::GetCurrentThreadId();
+}
+
+ThreadIdentifier CThread::GetDisplayThreadId(const ThreadIdentifier tid)
+{
+  return tid;
 }
 
 bool CThread::IsCurrentThread(const ThreadIdentifier tid)
@@ -136,8 +134,8 @@ bool CThread::WaitForThreadExit(unsigned int milliseconds)
   {
     // boost priority of thread we are waiting on to same as caller
     int callee = GetThreadPriority(m_ThreadOpaque.handle);
-    int caller = GetThreadPriority(GetCurrentThread());
-    if(caller > callee)
+    int caller = GetThreadPriority(::GetCurrentThread());
+    if(caller != THREAD_PRIORITY_ERROR_RETURN && caller > callee)
       SetThreadPriority(m_ThreadOpaque.handle, caller);
 
     lock.Leave();
@@ -145,7 +143,7 @@ bool CThread::WaitForThreadExit(unsigned int milliseconds)
     lock.Enter();
 
     // restore thread priority if thread hasn't exited
-    if(caller > callee && m_ThreadOpaque.handle)
+    if(callee != THREAD_PRIORITY_ERROR_RETURN && caller > callee && m_ThreadOpaque.handle)
       SetThreadPriority(m_ThreadOpaque.handle, callee);
   }
   return bReturn;
@@ -153,6 +151,10 @@ bool CThread::WaitForThreadExit(unsigned int milliseconds)
 
 int64_t CThread::GetAbsoluteUsage()
 {
+#ifdef TARGET_WINDOWS_STORE
+  // GetThreadTimes is available since 10.0.15063 only
+  return 0;
+#else
   CSingleLock lock(m_CriticalSection);
 
   if (!m_ThreadOpaque.handle)
@@ -166,6 +168,7 @@ int64_t CThread::GetAbsoluteUsage()
     time += (((uint64_t)KernelTime.dwHighDateTime) << 32) + ((uint64_t)KernelTime.dwLowDateTime);
   }
   return time;
+#endif
 }
 
 float CThread::GetRelativeUsage()
@@ -189,6 +192,4 @@ float CThread::GetRelativeUsage()
 
 void CThread::SetSignalHandlers()
 {
-  // install win32 exception translator
-  win32_exception::install_handler();
 }

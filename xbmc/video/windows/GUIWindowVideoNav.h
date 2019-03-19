@@ -1,46 +1,51 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
 #include "GUIWindowVideoBase.h"
-#include "ThumbLoader.h"
 
 class CFileItemList;
+
+enum SelectFirstUnwatchedItem
+{
+  NEVER = 0,
+  ON_FIRST_ENTRY = 1,
+  ALWAYS = 2
+};
+
+enum IncludeAllSeasonsAndSpecials
+{
+  NEITHER = 0,
+  BOTH = 1,
+  ALL_SEASONS = 2,
+  SPECIALS = 3
+};
 
 class CGUIWindowVideoNav : public CGUIWindowVideoBase
 {
 public:
 
   CGUIWindowVideoNav(void);
-  virtual ~CGUIWindowVideoNav(void);
+  ~CGUIWindowVideoNav(void) override;
 
-  virtual bool OnAction(const CAction &action);
-  virtual bool OnMessage(CGUIMessage& message);
+  bool OnAction(const CAction &action) override;
+  bool OnMessage(CGUIMessage& message) override;
 
-  virtual void OnPrepareFileItems(CFileItemList &items);
+  void OnItemInfo(const CFileItem& fileItem, ADDON::ScraperPtr &info) override;
 
-  virtual void OnInfo(CFileItem* pItem, ADDON::ScraperPtr &info);
-  static bool CanDelete(const CStdString& strPath);
-  static bool DeleteItem(CFileItem* pItem, bool bUnavailable=false);
+  /*! \brief Load video information from the database for these items (public static version)
+   Useful for grabbing information for file listings, from watched status to full metadata
+   \param items the items to load information for.
+   \param database open database object to retrieve the data from
+   \param allowReplaceLabels allow label replacement if according GUI setting is enabled
+   */
+  static void LoadVideoInfo(CFileItemList &items, CVideoDatabase &database, bool allowReplaceLabels = true);
 
 protected:
   /*! \brief Load video information from the database for these items
@@ -49,23 +54,29 @@ protected:
    */
   void LoadVideoInfo(CFileItemList &items);
 
-  void ApplyWatchedFilter(CFileItemList &items);
-  virtual bool GetFilteredItems(const CStdString &filter, CFileItemList &items);
+  bool ApplyWatchedFilter(CFileItemList &items);
+  bool GetFilteredItems(const std::string &filter, CFileItemList &items) override;
 
-  virtual void OnItemLoaded(CFileItem* pItem) {};
-  void OnLinkMovieToTvShow(int itemnumber, bool bRemove);
+  void OnItemLoaded(CFileItem* pItem) override {};
+
   // override base class methods
-  virtual bool GetDirectory(const CStdString &strDirectory, CFileItemList &items);
-  virtual void UpdateButtons();
-  virtual void DoSearch(const CStdString& strSearch, CFileItemList& items);
+  bool Update(const std::string &strDirectory, bool updateFilterPath = true) override;
+  bool GetDirectory(const std::string &strDirectory, CFileItemList &items) override;
+  void UpdateButtons() override;
+  void DoSearch(const std::string& strSearch, CFileItemList& items) override;
   virtual void PlayItem(int iItem);
-  virtual void OnDeleteItem(CFileItemPtr pItem);
-  virtual void GetContextButtons(int itemNumber, CContextButtons &buttons);
-  virtual bool OnContextButton(int itemNumber, CONTEXT_BUTTON button);
-  virtual bool OnClick(int iItem);
-  virtual CStdString GetStartFolder(const CStdString &dir);
-
-  virtual CStdString GetQuickpathName(const CStdString& strPath) const;
+  void OnDeleteItem(CFileItemPtr pItem) override;
+  void GetContextButtons(int itemNumber, CContextButtons &buttons) override;
+  bool OnContextButton(int itemNumber, CONTEXT_BUTTON button) override;
+  bool OnAddMediaSource() override;
+  bool OnClick(int iItem, const std::string &player = "") override;
+  std::string GetStartFolder(const std::string &dir) override;
 
   VECSOURCES m_shares;
+
+private:
+  virtual SelectFirstUnwatchedItem GetSettingSelectFirstUnwatchedItem();
+  virtual IncludeAllSeasonsAndSpecials GetSettingIncludeAllSeasonsAndSpecials();
+  virtual int GetFirstUnwatchedItemIndex(bool includeAllSeasons, bool includeSpecials);
+  void SelectFirstUnwatched();
 };

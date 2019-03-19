@@ -1,35 +1,28 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
 #include "guilib/IMsgTargetCallback.h"
-#include <boost/shared_ptr.hpp>
+#include "messaging/IMessageTarget.h"
+#include "ServiceBroker.h"
+#include <memory>
 
 #define PLAYLIST_NONE    -1
 #define PLAYLIST_MUSIC   0
 #define PLAYLIST_VIDEO   1
 #define PLAYLIST_PICTURE 2
 
-class CFileItem; typedef boost::shared_ptr<CFileItem> CFileItemPtr;
+class CAction;
+class CFileItem; typedef std::shared_ptr<CFileItem> CFileItemPtr;
 class CFileItemList;
+
+class CVariant;
 
 namespace PLAYLIST
 {
@@ -41,13 +34,17 @@ enum REPEAT_STATE { REPEAT_NONE = 0, REPEAT_ONE, REPEAT_ALL };
 
 class CPlayList;
 
-class CPlayListPlayer : public IMsgTargetCallback
+class CPlayListPlayer : public IMsgTargetCallback,
+                        public KODI::MESSAGING::IMessageTarget
 {
 
 public:
   CPlayListPlayer(void);
-  virtual ~CPlayListPlayer(void);
-  virtual bool OnMessage(CGUIMessage &message);
+  ~CPlayListPlayer(void) override;
+  bool OnMessage(CGUIMessage &message) override;
+
+  int GetMessageMask() override;
+  void OnApplicationMessage(KODI::MESSAGING::ThreadMessage* pMsg) override;
 
   /*! \brief Play the next (or another) entry in the current playlist
    \param offset The offset from the current entry (defaults to 1, i.e. the next entry).
@@ -62,12 +59,17 @@ public:
   bool PlaySongId(int songId);
   bool Play();
 
+  /*! \brief Creates a new playlist for an item and starts playing it
+   \param pItem The item to play.
+   */
+  bool Play(const CFileItemPtr &pItem, std::string player);
+
   /*! \brief Start playing a particular entry in the current playlist
    \param index the index of the item to play. This value is modified to ensure it lies within the current playlist.
    \param replace whether this item should replace the currently playing item. See CApplication::PlayFile (defaults to false).
    \param playPreviousOnFail whether to go back to the previous item if playback fails (default to false)
    */
-  bool Play(int index, bool replace = false, bool playPreviousOnFail = false);
+  bool Play(int index, std::string player, bool replace = false, bool playPreviousOnFail = false);
 
   /*! \brief Returns the index of the current item in active playlist.
    \return Current item in the active playlist.
@@ -82,7 +84,7 @@ public:
   void SetCurrentSong(int index);
 
   int GetNextSong();
-  
+
   /*! \brief Get the index in the playlist that is offset away from the current index in the current playlist.
    Obeys any repeat settings (eg repeat one will return the current index regardless of offset)
    \return the index of the entry, or -1 if there is no current playlist. There is no guarantee that the returned index is valid.
@@ -131,7 +133,7 @@ public:
    \sa IsShuffled
    */
   void SetShuffle(int playlist, bool shuffle, bool notify = false);
-  
+
   /*! \brief Return whether a playlist is shuffled.
    If partymode is enabled, this always returns false.
    \param playlist the playlist to query for shuffle state, PLAYLIST_MUSIC or PLAYLIST_VIDEO.
@@ -156,14 +158,18 @@ public:
   REPEAT_STATE GetRepeat(int iPlaylist) const;
 
   // add items via the playlist player
-  void Add(int iPlaylist, CPlayList& playlist);
+  void Add(int iPlaylist, const CPlayList& playlist);
   void Add(int iPlaylist, const CFileItemPtr &pItem);
-  void Add(int iPlaylist, CFileItemList& items);
-  void Insert(int iPlaylist, CPlayList& playlist, int iIndex);
+  void Add(int iPlaylist, const CFileItemList& items);
+  void Insert(int iPlaylist, const CPlayList& playlist, int iIndex);
   void Insert(int iPlaylist, const CFileItemPtr &pItem, int iIndex);
-  void Insert(int iPlaylist, CFileItemList& items, int iIndex);
+  void Insert(int iPlaylist, const CFileItemList& items, int iIndex);
   void Remove(int iPlaylist, int iPosition);
   void Swap(int iPlaylist, int indexItem1, int indexItem2);
+
+  bool IsSingleItemNonRepeatPlaylist() const;
+
+  bool OnAction(const CAction &action);
 protected:
   /*! \brief Returns true if the given is set to repeat all
    \param playlist Playlist to be query
@@ -179,6 +185,8 @@ protected:
 
   void ReShuffle(int iPlaylist, int iPosition);
 
+  void AnnouncePropertyChanged(int iPlaylist, const std::string &strProperty, const CVariant &value);
+
   bool m_bPlayedFirstFile;
   bool m_bPlaybackStarted;
   int m_iFailedSongs;
@@ -192,9 +200,3 @@ protected:
 };
 
 }
-
-/*!
- \ingroup windows
- \brief Global instance of playlist player
- */
-extern PLAYLIST::CPlayListPlayer g_playlistPlayer;

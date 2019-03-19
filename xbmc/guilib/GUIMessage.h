@@ -1,33 +1,17 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
 /*!
 \file GUIMessage.h
 \brief
 */
-
-#ifndef GUILIB_MESSAGE_H
-#define GUILIB_MESSAGE_H
-
-#pragma once
-
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
 
 #define GUI_MSG_WINDOW_INIT     1   // initialize window
 #define GUI_MSG_WINDOW_DEINIT   2   // deinit window
@@ -44,8 +28,8 @@
 #define GUI_MSG_ENABLED         8   // enable control
 #define GUI_MSG_DISABLED        9   // disable control
 
-#define GUI_MSG_SELECTED       10   // control = selected
-#define GUI_MSG_DESELECTED     11   // control = not selected
+#define GUI_MSG_SET_SELECTED   10   // control = selected
+#define GUI_MSG_SET_DESELECTED 11   // control = not selected
 
 #define GUI_MSG_LABEL_ADD      12   // add label control (for controls supporting more then 1 label)
 
@@ -71,8 +55,6 @@
 
 #define GUI_MSG_LABEL_BIND     24   // bind label control (for controls supporting more then 1 label)
 
-#define GUI_MSG_SELCHANGED  25  // selection within the control has changed
-
 #define GUI_MSG_FOCUSED     26  // a control has become focused
 
 #define GUI_MSG_PAGE_CHANGE 28  // a page control has changed the page number
@@ -81,7 +63,7 @@
 
 #define GUI_MSG_PAGE_UP      30 // page up
 #define GUI_MSG_PAGE_DOWN    31 // page down
-#define GUI_MSG_MOVE_OFFSET  32 // Instruct the contorl to MoveUp or MoveDown by offset amount
+#define GUI_MSG_MOVE_OFFSET  32 // Instruct the control to MoveUp or MoveDown by offset amount
 
 #define GUI_MSG_SET_TYPE     33 ///< Instruct a control to set it's type appropriately
 
@@ -130,7 +112,60 @@
  */
 #define GUI_MSG_UNFOCUS_ALL 41
 
+#define GUI_MSG_SET_TEXT        42
+
+#define GUI_MSG_WINDOW_LOAD 43
+
+#define GUI_MSG_VALIDITY_CHANGED  44
+
+/*!
+ \brief Check whether a button is selected
+ */
+#define GUI_MSG_IS_SELECTED    45
+
+/*!
+ \brief Bind a set of labels to a spin (or similar) control
+ */
+#define GUI_MSG_SET_LABELS     46
+
+/*!
+ \brief Set the filename for an image control
+ */
+#define GUI_MSG_SET_FILENAME   47
+
+/*!
+ \brief Get the filename of an image control
+ */
+
+#define GUI_MSG_GET_FILENAME   48
+
+/*!
+ \brief The user interface is ready for usage
+ */
+#define GUI_MSG_UI_READY       49
+
+ /*!
+ \brief Called every 500ms to allow time dependent updates
+ */
+#define GUI_MSG_REFRESH_TIMER  50
+
+ /*!
+ \brief Called if state has changed wich could lead to GUI changes
+ */
+#define GUI_MSG_STATE_CHANGED  51
+
+/*!
+ \brief Called when a subtitle download has finished
+ */
+#define GUI_MSG_SUBTITLE_DOWNLOADED  52
+
+
 #define GUI_MSG_USER         1000
+
+/*!
+\brief Complete to get codingtable page
+*/
+#define GUI_MSG_CODINGTABLE_LOOKUP_COMPLETED 65000
 
 /*!
  \ingroup winmsg
@@ -138,7 +173,7 @@
  */
 #define CONTROL_SELECT(controlID) \
 do { \
- CGUIMessage msg(GUI_MSG_SELECTED, GetID(), controlID); \
+ CGUIMessage msg(GUI_MSG_SET_SELECTED, GetID(), controlID); \
  OnMessage(msg); \
 } while(0)
 
@@ -148,7 +183,7 @@ do { \
  */
 #define CONTROL_DESELECT(controlID) \
 do { \
- CGUIMessage msg(GUI_MSG_DESELECTED, GetID(), controlID); \
+ CGUIMessage msg(GUI_MSG_SET_DESELECTED, GetID(), controlID); \
  OnMessage(msg); \
 } while(0)
 
@@ -208,6 +243,20 @@ do { \
 
 /*!
  \ingroup winmsg
+ \brief Set the label of the current control
+ */
+#define SET_CONTROL_LABEL_THREAD_SAFE(controlID,label) \
+{ \
+ CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), controlID); \
+ msg.SetLabel(label); \
+ if(g_application.IsCurrentThread()) \
+   OnMessage(msg); \
+ else \
+   CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg, GetID()); \
+}
+
+/*!
+ \ingroup winmsg
  \brief Set the second label of the current control
  */
 #define SET_CONTROL_LABEL2(controlID,label) \
@@ -215,6 +264,28 @@ do { \
  CGUIMessage msg(GUI_MSG_LABEL2_SET, GetID(), controlID); \
  msg.SetLabel(label); \
  OnMessage(msg); \
+} while(0)
+
+/*!
+ \ingroup winmsg
+ \brief Set a bunch of labels on the given control
+ */
+#define SET_CONTROL_LABELS(controlID, defaultValue, labels) \
+do { \
+CGUIMessage msg(GUI_MSG_SET_LABELS, GetID(), controlID, defaultValue); \
+msg.SetPointer(labels); \
+OnMessage(msg); \
+} while(0)
+
+/*!
+ \ingroup winmsg
+ \brief Set the label of the current control
+ */
+#define SET_CONTROL_FILENAME(controlID,label) \
+do { \
+CGUIMessage msg(GUI_MSG_SET_FILENAME, GetID(), controlID); \
+msg.SetLabel(label); \
+OnMessage(msg); \
 } while(0)
 
 /*!
@@ -249,13 +320,8 @@ do { \
 
 #define SET_CONTROL_SELECTED(dwSenderId, controlID, bSelect) \
 do { \
- CGUIMessage msg(bSelect?GUI_MSG_SELECTED:GUI_MSG_DESELECTED, dwSenderId, controlID); \
+ CGUIMessage msg(bSelect?GUI_MSG_SET_SELECTED:GUI_MSG_SET_DESELECTED, dwSenderId, controlID); \
  OnMessage(msg); \
-} while(0)
-
-#define BIND_CONTROL(i,c,pv) \
-do { \
- pv = ((c*)GetControl(i));\
 } while(0)
 
 /*!
@@ -268,27 +334,27 @@ do { \
  SendWindowMessage(msg); \
 } while(0)
 
+#include <string>
 #include <vector>
-#include <boost/shared_ptr.hpp>
-#include "utils/StdString.h"
+#include <memory>
 
 // forwards
-class CGUIListItem; typedef boost::shared_ptr<CGUIListItem> CGUIListItemPtr;
+class CGUIListItem; typedef std::shared_ptr<CGUIListItem> CGUIListItemPtr;
 class CFileItemList;
 
 /*!
  \ingroup winmsg
  \brief
  */
-class CGUIMessage
+class CGUIMessage final
 {
 public:
   CGUIMessage(int dwMsg, int senderID, int controlID, int param1 = 0, int param2 = 0);
   CGUIMessage(int msg, int senderID, int controlID, int param1, int param2, CFileItemList* item);
   CGUIMessage(int msg, int senderID, int controlID, int param1, int param2, const CGUIListItemPtr &item);
   CGUIMessage(const CGUIMessage& msg);
-  virtual ~CGUIMessage(void);
-  const CGUIMessage& operator = (const CGUIMessage& msg);
+  ~CGUIMessage(void);
+  CGUIMessage& operator = (const CGUIMessage& msg);
 
   int GetControlId() const ;
   int GetMessage() const;
@@ -301,16 +367,16 @@ public:
   void SetParam2(int param2);
   void SetPointer(void* pointer);
   void SetLabel(const std::string& strLabel);
-  void SetLabel(int iString);               // for convience - looks up in strings.xml
+  void SetLabel(int iString);               // for convenience - looks up in strings.xml
   const std::string& GetLabel() const;
-  void SetStringParam(const CStdString &strParam);
-  void SetStringParams(const std::vector<CStdString> &params);
-  const CStdString& GetStringParam(size_t param = 0) const;
+  void SetStringParam(const std::string &strParam);
+  void SetStringParams(const std::vector<std::string> &params);
+  const std::string& GetStringParam(size_t param = 0) const;
   size_t GetNumStringParams() const;
 
 private:
   std::string m_strLabel;
-  std::vector<CStdString> m_params;
+  std::vector<std::string> m_params;
   int m_senderID;
   int m_controlID;
   int m_message;
@@ -319,6 +385,6 @@ private:
   int m_param2;
   CGUIListItemPtr m_item;
 
-  static CStdString empty_string;
+  static std::string empty_string;
 };
-#endif
+

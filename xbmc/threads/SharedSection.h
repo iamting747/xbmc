@@ -1,25 +1,12 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "threads/Condition.h"
 #include "threads/SingleLock.h"
@@ -34,12 +21,12 @@ class CSharedSection
   XbmcThreads::ConditionVariable actualCv;
   XbmcThreads::TightConditionVariable<XbmcThreads::InversePredicate<unsigned int&> > cond;
 
-  unsigned int sharedCount;
+  unsigned int sharedCount = 0;
 
 public:
-  inline CSharedSection() : cond(actualCv,XbmcThreads::InversePredicate<unsigned int&>(sharedCount)), sharedCount(0)  {}
+  inline CSharedSection() : cond(actualCv,XbmcThreads::InversePredicate<unsigned int&>(sharedCount)) {}
 
-  inline void lock() { CSingleLock l(sec); if (sharedCount) cond.wait(l); sec.lock(); }
+  inline void lock() { CSingleLock l(sec); while (sharedCount) cond.wait(l); sec.lock(); }
   inline bool try_lock() { return (sec.try_lock() ? ((sharedCount == 0) ? true : (sec.unlock(), false)) : false); }
   inline void unlock() { sec.unlock(); }
 
@@ -51,8 +38,7 @@ public:
 class CSharedLock : public XbmcThreads::SharedLock<CSharedSection>
 {
 public:
-  inline CSharedLock(CSharedSection& cs) : XbmcThreads::SharedLock<CSharedSection>(cs) {}
-  inline CSharedLock(const CSharedSection& cs) : XbmcThreads::SharedLock<CSharedSection>((CSharedSection&)cs) {}
+  inline explicit CSharedLock(CSharedSection& cs) : XbmcThreads::SharedLock<CSharedSection>(cs) {}
 
   inline bool IsOwner() const { return owns_lock(); }
   inline void Enter() { lock(); }
@@ -62,8 +48,7 @@ public:
 class CExclusiveLock : public XbmcThreads::UniqueLock<CSharedSection>
 {
 public:
-  inline CExclusiveLock(CSharedSection& cs) : XbmcThreads::UniqueLock<CSharedSection>(cs) {}
-  inline CExclusiveLock(const CSharedSection& cs) : XbmcThreads::UniqueLock<CSharedSection> ((CSharedSection&)cs) {}
+  inline explicit CExclusiveLock(CSharedSection& cs) : XbmcThreads::UniqueLock<CSharedSection>(cs) {}
 
   inline bool IsOwner() const { return owns_lock(); }
   inline void Leave() { unlock(); }

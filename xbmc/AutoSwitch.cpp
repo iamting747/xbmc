@@ -1,31 +1,20 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "AutoSwitch.h"
-#include "guilib/GUIBaseContainer.h" // for VIEW_TYPE_*
-#include "settings/Settings.h"
-#include "settings/GUISettings.h"
-#include "guilib/GUIWindowManager.h"
 #include "FileItem.h"
-#include "guilib/Key.h"
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/WindowIDs.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "view/ViewState.h"
 
 #define METHOD_BYFOLDERS  0
 #define METHOD_BYFILES   1
@@ -33,11 +22,9 @@
 #define METHOD_BYFILECOUNT 3
 #define METHOD_BYFOLDERTHUMBS 4
 
-CAutoSwitch::CAutoSwitch(void)
-{}
+CAutoSwitch::CAutoSwitch(void) = default;
 
-CAutoSwitch::~CAutoSwitch(void)
-{}
+CAutoSwitch::~CAutoSwitch(void) = default;
 
 /// \brief Generic function to add a layer of transparency to the calling window
 /// \param vecItems Vector of FileItems passed from the calling window
@@ -45,25 +32,11 @@ int CAutoSwitch::GetView(const CFileItemList &vecItems)
 {
   int iSortMethod = -1;
   int iPercent = 0;
-  int iCurrentWindow = g_windowManager.GetActiveWindow();
-  bool bHideParentFolderItems = !g_guiSettings.GetBool("filelists.showparentdiritems");
+  int iCurrentWindow = CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow();
+  bool bHideParentFolderItems = !CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_FILELISTS_SHOWPARENTDIRITEMS);
 
   switch (iCurrentWindow)
   {
-  case WINDOW_MUSIC_FILES:
-    {
-      iSortMethod = METHOD_BYFOLDERTHUMBS;
-      iPercent = 50;
-    }
-    break;
-
-  case WINDOW_VIDEO_FILES:
-    {
-      iSortMethod = METHOD_BYTHUMBPERCENT;
-      iPercent = 50;  // 50% of thumbs -> use thumbs.
-    }
-    break;
-
   case WINDOW_PICTURES:
     {
       iSortMethod = METHOD_BYFILECOUNT;
@@ -127,7 +100,7 @@ bool CAutoSwitch::ByFolders(const CFileItemList& vecItems)
     for (int i = 0; i < vecItems.Size(); i++)
     {
       const CFileItemPtr pItem = vecItems[i];
-      if (pItem->HasThumbnail())
+      if (pItem->HasArt("thumb"))
       {
         bThumbs = true;
         break;
@@ -145,7 +118,7 @@ bool CAutoSwitch::ByFiles(bool bHideParentDirItems, const CFileItemList& vecItem
   bool bThumbs = false;
   int iCompare = 0;
 
-  // parent directorys are visible, incrememt
+  // parent directorys are visible, increment
   if (!bHideParentDirItems)
   {
     iCompare = 1;
@@ -158,7 +131,7 @@ bool CAutoSwitch::ByFiles(bool bHideParentDirItems, const CFileItemList& vecItem
     for (int i = 0; i < vecItems.Size(); i++)
     {
       const CFileItemPtr pItem = vecItems[i];
-      if (pItem->HasThumbnail())
+      if (pItem->HasArt("thumb"))
       {
         bThumbs = true;
         break;
@@ -187,7 +160,7 @@ bool CAutoSwitch::ByThumbPercent(bool bHideParentDirItems, int iPercent, const C
   for (int i = 0; i < vecItems.Size(); i++)
   {
     const CFileItemPtr pItem = vecItems[i];
-    if (pItem->HasThumbnail())
+    if (pItem->HasArt("thumb"))
     {
       iNumThumbs++;
       float fTempPercent = ( (float)iNumThumbs / (float)iNumItems ) * (float)100;
@@ -228,7 +201,7 @@ bool CAutoSwitch::ByFolderThumbPercentage(bool hideParentDirItems, int percent, 
   for (int i = 0; i < vecItems.Size(); i++)
   {
     const CFileItemPtr item = vecItems[i];
-    if (item->m_bIsFolder && item->HasThumbnail())
+    if (item->m_bIsFolder && item->HasArt("thumb"))
     {
       numThumbs++;
       if (numThumbs >= 0.01f * percent * (numItems - fileCount))
@@ -254,5 +227,5 @@ float CAutoSwitch::MetadataPercentage(const CFileItemList &vecItems)
     if(item->IsParentFolder())
       total--;
   }
-  return (float)count / total;
+  return (total != 0) ? ((float)count / total) : 0.0f;
 }

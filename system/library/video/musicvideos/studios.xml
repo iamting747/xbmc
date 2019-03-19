@@ -1,5 +1,7 @@
-<node order="7" type="folder">
-  <label>20388</label>
-  <path>videodb://3/7</path>
-  <icon>DefaultStudios.png</icon>
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<node order="80" type="filter">
+	<label>20388</label>
+	<icon>DefaultStudios.png</icon>
+	<content>musicvideos</content>
+	<group>studios</group>
 </node>

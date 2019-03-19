@@ -1,38 +1,24 @@
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-#include "system.h" //HAS_ZEROCONF define
 #include "ZeroconfBrowser.h"
-#include "settings/Settings.h"
 #include <stdexcept>
 #include "utils/log.h"
+#include <cassert>
 
-#ifdef _LINUX
-#if !defined(TARGET_DARWIN)
-#include "linux/ZeroconfBrowserAvahi.h"
-#else
+#if defined (HAS_AVAHI)
+#include "platform/linux/network/ZeroconfBrowserAvahi.h"
+#elif defined(TARGET_DARWIN)
 //on osx use the native implementation
-#include "osx/ZeroconfBrowserOSX.h"
-#endif
-#elif defined(TARGET_WINDOWS)
-#include "windows/ZeroconfBrowserWIN.h"
+#include "platform/darwin/osx/network/ZeroconfBrowserOSX.h"
+#elif defined(TARGET_ANDROID)
+#include "platform/android/network/ZeroconfBrowserAndroid.h"
+#elif defined(HAS_MDNS)
+#include "mdns/ZeroconfBrowserMDNS.h"
 #endif
 
 #include "threads/CriticalSection.h"
@@ -44,32 +30,26 @@
 //should be optimized away
 class CZeroconfBrowserDummy : public CZeroconfBrowser
 {
-  virtual bool doAddServiceType(const CStdString&){return false;}
-  virtual bool doRemoveServiceType(const CStdString&){return false;}
+  virtual bool doAddServiceType(const std::string&){return false;}
+  virtual bool doRemoveServiceType(const std::string&){return false;}
   virtual std::vector<ZeroconfService> doGetFoundServices(){return std::vector<ZeroconfService>();}
   virtual bool doResolveService(ZeroconfService&, double){return false;}
 };
 #endif
 
-long CZeroconfBrowser::sm_singleton_guard = 0;
+std::atomic_flag CZeroconfBrowser::sm_singleton_guard = ATOMIC_FLAG_INIT;
 CZeroconfBrowser* CZeroconfBrowser::smp_instance = 0;
 
-CZeroconfBrowser::CZeroconfBrowser():mp_crit_sec(new CCriticalSection),m_started(false)
+CZeroconfBrowser::CZeroconfBrowser():mp_crit_sec(new CCriticalSection)
 {
 #ifdef HAS_FILESYSTEM_SMB
   AddServiceType("_smb._tcp.");
 #endif
   AddServiceType("_ftp._tcp.");
-  AddServiceType("_htsp._tcp.");
-  AddServiceType("_daap._tcp.");
   AddServiceType("_webdav._tcp.");
 #ifdef HAS_FILESYSTEM_NFS
-  AddServiceType("_nfs._tcp.");  
+  AddServiceType("_nfs._tcp.");
 #endif// HAS_FILESYSTEM_NFS
-#ifdef HAS_FILESYSTEM_AFP
-  AddServiceType("_afpovertcp._tcp.");   
-#endif
-  AddServiceType("_sftp-ssh._tcp.");
 }
 
 CZeroconfBrowser::~CZeroconfBrowser()
@@ -97,7 +77,7 @@ void CZeroconfBrowser::Stop()
   m_started = false;
 }
 
-bool CZeroconfBrowser::AddServiceType(const CStdString& fcr_service_type /*const CStdString& domain*/ )
+bool CZeroconfBrowser::AddServiceType(const std::string& fcr_service_type /*const std::string& domain*/ )
 {
   CSingleLock lock(*mp_crit_sec);
   std::pair<tServices::iterator, bool> ret = m_services.insert(fcr_service_type);
@@ -112,7 +92,7 @@ bool CZeroconfBrowser::AddServiceType(const CStdString& fcr_service_type /*const
   return true;
 }
 
-bool CZeroconfBrowser::RemoveServiceType(const CStdString& fcr_service_type)
+bool CZeroconfBrowser::RemoveServiceType(const std::string& fcr_service_type)
 {
   CSingleLock lock(*mp_crit_sec);
   tServices::iterator ret = m_services.find(fcr_service_type);
@@ -160,10 +140,13 @@ CZeroconfBrowser*  CZeroconfBrowser::GetInstance()
 #else
 #if defined(TARGET_DARWIN)
       smp_instance = new CZeroconfBrowserOSX;
-#elif defined(_LINUX)
+#elif defined(HAS_AVAHI)
       smp_instance  = new CZeroconfBrowserAvahi;
-#elif defined(TARGET_WINDOWS)
-      smp_instance  = new CZeroconfBrowserWIN;
+#elif defined(TARGET_ANDROID)
+      // WIP
+      smp_instance  = new CZeroconfBrowserAndroid;
+#elif defined(HAS_MDNS)
+      smp_instance  = new CZeroconfBrowserMDNS;
 #endif
 #endif
     }
@@ -180,20 +163,18 @@ void CZeroconfBrowser::ReleaseInstance()
 }
 
 
-CZeroconfBrowser::ZeroconfService::ZeroconfService():m_port(0){}
-
-CZeroconfBrowser::ZeroconfService::ZeroconfService(const CStdString& fcr_name, const CStdString& fcr_type, const CStdString& fcr_domain):
+CZeroconfBrowser::ZeroconfService::ZeroconfService(const std::string& fcr_name, const std::string& fcr_type, const std::string& fcr_domain):
   m_name(fcr_name),
   m_domain(fcr_domain)
 {
   SetType(fcr_type);
 }
-void CZeroconfBrowser::ZeroconfService::SetName(const CStdString& fcr_name)
+void CZeroconfBrowser::ZeroconfService::SetName(const std::string& fcr_name)
 {
   m_name = fcr_name;
 }
 
-void CZeroconfBrowser::ZeroconfService::SetType(const CStdString& fcr_type)
+void CZeroconfBrowser::ZeroconfService::SetType(const std::string& fcr_type)
 {
   if(fcr_type.empty())
     throw std::runtime_error("CZeroconfBrowser::ZeroconfService::SetType invalid type: "+ fcr_type);
@@ -204,12 +185,17 @@ void CZeroconfBrowser::ZeroconfService::SetType(const CStdString& fcr_type)
     m_type = fcr_type;
 }
 
-void CZeroconfBrowser::ZeroconfService::SetDomain(const CStdString& fcr_domain)
+void CZeroconfBrowser::ZeroconfService::SetDomain(const std::string& fcr_domain)
 {
   m_domain = fcr_domain;
 }
 
-void CZeroconfBrowser::ZeroconfService::SetIP(const CStdString& fcr_ip)
+void CZeroconfBrowser::ZeroconfService::SetHostname(const std::string& fcr_hostname)
+{
+  m_hostname = fcr_hostname;
+}
+
+void CZeroconfBrowser::ZeroconfService::SetIP(const std::string& fcr_ip)
 {
   m_ip = fcr_ip;
 }
@@ -222,7 +208,7 @@ void CZeroconfBrowser::ZeroconfService::SetPort(int f_port)
 void CZeroconfBrowser::ZeroconfService::SetTxtRecords(const tTxtRecordMap& txt_records)
 {
   m_txtrecords_map = txt_records;
-  
+
   CLog::Log(LOGDEBUG,"CZeroconfBrowser: dump txt-records");
   for(tTxtRecordMap::const_iterator it = m_txtrecords_map.begin(); it != m_txtrecords_map.end(); ++it)
   {
@@ -230,20 +216,20 @@ void CZeroconfBrowser::ZeroconfService::SetTxtRecords(const tTxtRecordMap& txt_r
   }
 }
 
-CStdString CZeroconfBrowser::ZeroconfService::toPath(const ZeroconfService& fcr_service)
+std::string CZeroconfBrowser::ZeroconfService::toPath(const ZeroconfService& fcr_service)
 {
-  return CStdString(fcr_service.m_type + "@" + fcr_service.m_domain + "@" + fcr_service.m_name);
+  return fcr_service.m_type + '@' + fcr_service.m_domain + '@' + fcr_service.m_name;
 }
 
-CZeroconfBrowser::ZeroconfService CZeroconfBrowser::ZeroconfService::fromPath(const CStdString& fcr_path)
+CZeroconfBrowser::ZeroconfService CZeroconfBrowser::ZeroconfService::fromPath(const std::string& fcr_path)
 {
   if( fcr_path.empty() )
     throw std::runtime_error("CZeroconfBrowser::ZeroconfService::fromPath input string empty!");
 
-  int pos1 = fcr_path.Find('@'); //first @
-  int pos2 = fcr_path.Find('@', pos1+1); //second
+  size_t pos1 = fcr_path.find('@'); //first @
+  size_t pos2 = fcr_path.find('@', pos1 + 1); //second
 
-  if( pos1 == -1 || pos2 == -1 )
+  if(pos1 == std::string::npos || pos2 == std::string::npos)
     throw std::runtime_error("CZeroconfBrowser::ZeroconfService::fromPath invalid input path");
 
   return ZeroconfService(

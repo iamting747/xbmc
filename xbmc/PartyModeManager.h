@@ -1,30 +1,19 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/StdString.h"
+#pragma once
 
-#include <boost/shared_ptr.hpp>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
-class CFileItem; typedef boost::shared_ptr<CFileItem> CFileItemPtr;
+class CFileItem; typedef std::shared_ptr<CFileItem> CFileItemPtr;
 class CFileItemList;
 namespace PLAYLIST
 {
@@ -38,13 +27,12 @@ typedef enum
   PARTYMODECONTEXT_VIDEO
 } PartyModeContext;
 
-class CPartyModeManager
+class CPartyModeManager final
 {
 public:
   CPartyModeManager(void);
-  virtual ~CPartyModeManager(void);
 
-  bool Enable(PartyModeContext context=PARTYMODECONTEXT_MUSIC, const CStdString& strXspPath = "");
+  bool Enable(PartyModeContext context=PARTYMODECONTEXT_MUSIC, const std::string& strXspPath = "");
   void Disable();
   void Play(int iPos);
   void OnSongChange(bool bUpdatePlayed = false);
@@ -57,29 +45,25 @@ public:
   int GetMatchingSongsLeft();
   int GetRelaxedSongs();
   int GetRandomSongs();
+  PartyModeContext GetType() const;
 
 private:
   void Process();
-  bool AddRandomSongs(int iSongs = 0);
-  bool AddInitialSongs(std::vector< std::pair<int,int> > &songIDs);
+  bool AddRandomSongs();
   void Add(CFileItemPtr &pItem);
   bool ReapSongs();
   bool MovePlaying();
   void SendUpdateMessage();
-  void OnError(int iError, const CStdString& strLogMessage);
+  void OnError(int iError, const std::string& strLogMessage);
   void ClearState();
   void UpdateStats();
-  std::pair<CStdString,CStdString> GetWhereClauseWithHistory() const;
-  void AddToHistory(int type, int songID);
-  void GetRandomSelection(std::vector< std::pair<int,int> > &in, unsigned int number, std::vector< std::pair<int, int> > &out);
+  void Announce();
 
   // state
   bool m_bEnabled;
   bool m_bIsVideo;
   int m_iLastUserSong;
-  CStdString m_strCurrentFilterMusic;
-  CStdString m_strCurrentFilterVideo;
-  CStdString m_type;
+  std::string m_type;
 
   // statistics
   int m_iSongsPlayed;
@@ -90,8 +74,7 @@ private:
   int m_iRandomSongs;
 
   // history
-  unsigned int m_songsInHistory;
-  std::vector< std::pair<int,int> > m_history;
+  std::vector<std::pair<int, int>> m_songIDCache;
 };
 
 extern CPartyModeManager g_partyModeManager;

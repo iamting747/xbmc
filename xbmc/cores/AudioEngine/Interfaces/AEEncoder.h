@@ -1,27 +1,18 @@
-#pragma once
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "DllAvCodec.h"
-#include "AEAudioFormat.h"
+#pragma once
+
+#include "cores/AudioEngine/Utils/AEAudioFormat.h"
+
+extern "C" {
+#include "libavcodec/avcodec.h"
+}
 
 /**
  * IAEEncoder interface for on the fly audio compression
@@ -32,26 +23,27 @@ public:
   /**
    * Constructor
    */
-  IAEEncoder() {};
+  IAEEncoder() = default;
 
   /**
    * Destructor
    */
-  virtual ~IAEEncoder() {};
+  virtual ~IAEEncoder() = default;
 
   /**
    * Return true if the supplied format is compatible with the current open encoder.
    * @param format the format to compare
    * @return true if compatible, false if not
    */
-  virtual bool IsCompatible(AEAudioFormat format) = 0;
+  virtual bool IsCompatible(const AEAudioFormat& format) = 0;
 
   /**
    * Called to setup the encoder to accept data in the specified format
    * @param format the desired audio format, may be changed to suit the encoder
+   * @param allow_planar_input allow engine to use with planar formats
    * @return true on success, false on failure
    */
-  virtual bool Initialize(AEAudioFormat &format) = 0;
+  virtual bool Initialize(AEAudioFormat &format, bool allow_planar_input = false) = 0;
 
   /**
    * Reset the encoder for new data
@@ -65,10 +57,10 @@ public:
   virtual unsigned int GetBitRate() = 0;
 
   /**
-   * Returns the CodecID of the encoder
+   * Returns the AVCodecID of the encoder
    * @return the ffmpeg codec id
    */
-  virtual CodecID GetCodecID() = 0;
+  virtual AVCodecID GetCodecID() = 0;
 
   /**
    * Return the number of frames needed to encode
@@ -77,12 +69,14 @@ public:
   virtual unsigned int GetFrames() = 0;
 
   /**
-   * Encodes the supplied samples
-   * @param data the PCM samples in float format
-   * @param frames the number of audio frames in data (bytes / bits per sample = samples / channels = frames)
-   * @return the number of samples consumed
+   * Encodes the supplied samples into a provided buffer
+   * @param in the PCM samples encoder requested format
+   * @param in_size input buffer size
+   * @param output buffer
+   * @param out_size output buffer size
+   * @return size of encoded data
    */
-  virtual int Encode(float *data, unsigned int frames) = 0;
+  virtual int Encode (uint8_t *in, int in_size, uint8_t *out, int out_size) = 0;
 
   /**
    * Get the encoded data

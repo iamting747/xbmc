@@ -1,25 +1,12 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "GUIDialogBoxBase.h"
 
@@ -28,20 +15,21 @@ class CGUIDialogGamepad :
 {
 public:
   CGUIDialogGamepad(void);
-  virtual ~CGUIDialogGamepad(void);
-  virtual bool OnMessage(CGUIMessage& message);
+  ~CGUIDialogGamepad(void) override;
+  bool OnMessage(CGUIMessage& message) override;
   bool IsCanceled() const;
-  CStdString m_strUserInput;
-  CStdString m_strPassword;
+  std::string m_strUserInput;
+  std::string m_strPassword;
   int m_iRetries;
   bool m_bUserInputCleanup;
   bool m_bHideInputChars;
-  static bool ShowAndGetInput(CStdString& aTextString, const CStdString& dlgHeading, bool bHideUserInput);
-  static bool ShowAndVerifyNewPassword(CStdString& strNewPassword);
-  static int ShowAndVerifyPassword(CStdString& strPassword, const CStdString& dlgHeading, int iRetries);
-  static bool ShowAndVerifyInput(CStdString& strPassword, const CStdString& dlgHeading, const CStdString& dlgLine0, const CStdString& dlgLine1, const CStdString& dlgLine2, bool bGetUserInput, bool bHideInputChars);
+  static bool ShowAndGetInput(std::string& aTextString, const std::string& dlgHeading, bool bHideUserInput);
+  static bool ShowAndVerifyNewPassword(std::string& strNewPassword);
+  static int ShowAndVerifyPassword(std::string& strPassword, const std::string& dlgHeading, int iRetries);
+  static bool ShowAndVerifyInput(std::string& strPassword, const std::string& dlgHeading, const std::string& dlgLine0, const std::string& dlgLine1, const std::string& dlgLine2, bool bGetUserInput, bool bHideInputChars);
 protected:
-  virtual bool OnAction(const CAction &action);
+  bool OnAction(const CAction &action) override;
+  void OnInitWindow() override;
   bool m_bCanceled;
   char m_cHideInputChar;
 };

@@ -1,53 +1,56 @@
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "HTTPWebinterfaceAddonsHandler.h"
-#include "network/WebServer.h"
+#include "ServiceBroker.h"
 #include "addons/AddonManager.h"
+#include "network/WebServer.h"
 
 #define ADDON_HEADER      "<html><head><title>Add-on List</title></head><body>\n<h1>Available web interfaces:</h1>\n<ul>\n"
 
-using namespace std;
-using namespace ADDON;
-
-bool CHTTPWebinterfaceAddonsHandler::CheckHTTPRequest(const HTTPRequest &request)
+bool CHTTPWebinterfaceAddonsHandler::CanHandleRequest(const HTTPRequest &request) const
 {
-  return (request.url.compare("/addons") == 0 || request.url.compare("/addons/") == 0);
+  return (request.pathUrl.compare("/addons") == 0 || request.pathUrl.compare("/addons/") == 0);
 }
 
-int CHTTPWebinterfaceAddonsHandler::HandleHTTPRequest(const HTTPRequest &request)
+int CHTTPWebinterfaceAddonsHandler::HandleRequest()
 {
-  m_response = ADDON_HEADER;
-  VECADDONS addons;
-  CAddonMgr::Get().GetAddons(ADDON_WEB_INTERFACE, addons);
-  IVECADDONS addons_it;
-  for (addons_it=addons.begin(); addons_it!=addons.end(); addons_it++)
-    m_response += "<li><a href=/addons/"+ (*addons_it)->ID() + "/>" + (*addons_it)->Name() + "</a></li>\n";
+  m_responseData = ADDON_HEADER;
+  ADDON::VECADDONS addons;
+  if (!CServiceBroker::GetAddonMgr().GetAddons(addons, ADDON::ADDON_WEB_INTERFACE) || addons.empty())
+  {
+    m_response.type = HTTPError;
+    m_response.status = MHD_HTTP_INTERNAL_SERVER_ERROR;
 
-  m_response += "</ul>\n</body></html>";
+    return MHD_YES;
+  }
 
-  m_responseType = HTTPMemoryDownloadNoFreeCopy;
-  m_responseCode = MHD_HTTP_OK;
+  for (ADDON::IVECADDONS addon = addons.begin(); addon != addons.end(); ++addon)
+    m_responseData += "<li><a href=/addons/" + (*addon)->ID() + "/>" + (*addon)->Name() + "</a></li>\n";
+
+  m_responseData += "</ul>\n</body></html>";
+
+  m_responseRange.SetData(m_responseData.c_str(), m_responseData.size());
+
+  m_response.type = HTTPMemoryDownloadNoFreeCopy;
+  m_response.status = MHD_HTTP_OK;
+  m_response.contentType = "text/html";
+  m_response.totalLength = m_responseData.size();
 
   return MHD_YES;
+}
+
+HttpResponseRanges CHTTPWebinterfaceAddonsHandler::GetResponseData() const
+{
+  HttpResponseRanges ranges;
+  ranges.push_back(m_responseRange);
+
+  return ranges;
 }
 
 

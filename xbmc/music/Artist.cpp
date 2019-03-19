@@ -1,29 +1,68 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "Artist.h"
 #include "utils/XMLUtils.h"
+#include "ServiceBroker.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 
-using namespace std;
+#include <algorithm>
+
+void CArtist::MergeScrapedArtist(const CArtist& source, bool override /* = true */)
+{
+  /*
+  Initial scraping of artist information when the mbid is derived from tags is done directly
+  using that ID, otherwise the lookup is based on name and can mis-identify the artist
+  (many have same name). It is useful to store the scraped mbid, but we need to be
+  able to correct any mistakes. Hence a manual refresh of artist information uses either
+  the mbid is derived from tags or the artist name, not any previously scraped mbid.
+
+   A Musicbrainz artist ID derived from music file tags is always taken as accurate and so can
+   not be overwritten by a scraped value. When the artist does not already have an mbid or has
+   a previously scraped mbid, merge the new scraped value, flagging it as being from the
+   scraper rather than derived from music file tags.
+   */
+  if (!source.strMusicBrainzArtistID.empty() && (strMusicBrainzArtistID.empty() || bScrapedMBID))
+  {
+    strMusicBrainzArtistID = source.strMusicBrainzArtistID;
+    bScrapedMBID = true;
+  }
+
+  if ((override && !source.strArtist.empty()) || strArtist.empty())
+    strArtist = source.strArtist;
+
+  if ((override && !source.strSortName.empty()) || strSortName.empty())
+    strSortName = source.strSortName;
+
+  strType = source.strType;
+  strGender = source.strGender;
+  strDisambiguation = source.strDisambiguation;
+  genre = source.genre;
+  strBiography = source.strBiography;
+  styles = source.styles;
+  moods = source.moods;
+  instruments = source.instruments;
+  strBorn = source.strBorn;
+  strFormed = source.strFormed;
+  strDied = source.strDied;
+  strDisbanded = source.strDisbanded;
+  yearsActive = source.yearsActive;
+
+  thumbURL = source.thumbURL; // Available remote thumbs
+  fanart = source.fanart;  // Available remote fanart
+  // Current artwork - thumb, fanart etc., to be stored in art table
+  if (!source.art.empty())
+    art = source.art;
+
+  discography = source.discography;
+}
+
 
 bool CArtist::Load(const TiXmlElement *artist, bool append, bool prioritise)
 {
@@ -31,29 +70,37 @@ bool CArtist::Load(const TiXmlElement *artist, bool append, bool prioritise)
   if (!append)
     Reset();
 
-  XMLUtils::GetString(artist,"name",strArtist);
-  XMLUtils::GetStringArray(artist, "genre", genre, prioritise, g_advancedSettings.m_musicItemSeparator);
-  XMLUtils::GetStringArray(artist, "style", styles, prioritise, g_advancedSettings.m_musicItemSeparator);
-  XMLUtils::GetStringArray(artist, "mood", moods, prioritise, g_advancedSettings.m_musicItemSeparator);
-  XMLUtils::GetStringArray(artist, "yearsactive", yearsActive, prioritise, g_advancedSettings.m_musicItemSeparator);
-  XMLUtils::GetStringArray(artist, "instruments", instruments, prioritise, g_advancedSettings.m_musicItemSeparator);
+  const std::string itemSeparator = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicItemSeparator;
 
-  XMLUtils::GetString(artist, "born", strBorn);
-  XMLUtils::GetString(artist, "formed", strFormed);
+  XMLUtils::GetString(artist,                "name", strArtist);
+  XMLUtils::GetString(artist, "musicBrainzArtistID", strMusicBrainzArtistID);
+  XMLUtils::GetString(artist,            "sortname", strSortName);
+  XMLUtils::GetString(artist, "type", strType);
+  XMLUtils::GetString(artist, "gender", strGender);
+  XMLUtils::GetString(artist, "disambiguation", strDisambiguation);
+  XMLUtils::GetStringArray(artist,       "genre", genre, prioritise, itemSeparator);
+  XMLUtils::GetStringArray(artist,       "style", styles, prioritise, itemSeparator);
+  XMLUtils::GetStringArray(artist,        "mood", moods, prioritise, itemSeparator);
+  XMLUtils::GetStringArray(artist, "yearsactive", yearsActive, prioritise, itemSeparator);
+  XMLUtils::GetStringArray(artist, "instruments", instruments, prioritise, itemSeparator);
+
+  XMLUtils::GetString(artist,      "born", strBorn);
+  XMLUtils::GetString(artist,    "formed", strFormed);
   XMLUtils::GetString(artist, "biography", strBiography);
-  XMLUtils::GetString(artist, "died", strDied);
+  XMLUtils::GetString(artist,      "died", strDied);
   XMLUtils::GetString(artist, "disbanded", strDisbanded);
 
   size_t iThumbCount = thumbURL.m_url.size();
-  CStdString xmlAdd = thumbURL.m_xml;
+  std::string xmlAdd = thumbURL.m_xml;
 
+  // Available artist thumbs
   const TiXmlElement* thumb = artist->FirstChildElement("thumb");
   while (thumb)
   {
     thumbURL.ParseElement(thumb);
     if (prioritise)
     {
-      CStdString temp;
+      std::string temp;
       temp << *thumb;
       xmlAdd = temp+xmlAdd;
     }
@@ -63,18 +110,20 @@ bool CArtist::Load(const TiXmlElement *artist, bool append, bool prioritise)
   if (prioritise && iThumbCount && iThumbCount != thumbURL.m_url.size())
   {
     rotate(thumbURL.m_url.begin(),
-           thumbURL.m_url.begin()+iThumbCount, 
+           thumbURL.m_url.begin()+iThumbCount,
            thumbURL.m_url.end());
     thumbURL.m_xml = xmlAdd;
   }
+
+  // Discography
   const TiXmlElement* node = artist->FirstChildElement("album");
   while (node)
   {
     const TiXmlNode* title = node->FirstChild("title");
     if (title && title->FirstChild())
     {
-      CStdString strTitle = title->FirstChild()->Value();
-      CStdString strYear;
+      std::string strTitle = title->FirstChild()->Value();
+      std::string strYear;
       const TiXmlNode* year = node->FirstChild("year");
       if (year && year->FirstChild())
         strYear = year->FirstChild()->Value();
@@ -83,14 +132,14 @@ bool CArtist::Load(const TiXmlElement *artist, bool append, bool prioritise)
     node = node->NextSiblingElement("album");
   }
 
-  // fanart
+  // Available artist fanart
   const TiXmlElement *fanart2 = artist->FirstChildElement("fanart");
   if (fanart2)
   {
     // we prefix to handle mixed-mode nfo's with fanart set
     if (prioritise)
     {
-      CStdString temp;
+      std::string temp;
       temp << *fanart2;
       fanart.m_xml = temp+fanart.m_xml;
     }
@@ -99,10 +148,22 @@ bool CArtist::Load(const TiXmlElement *artist, bool append, bool prioritise)
     fanart.Unpack();
   }
 
+ // Current artwork  - thumb, fanart etc. (the chosen art, not the lists of those available)
+  node = artist->FirstChildElement("art");
+  if (node)
+  {
+    const TiXmlNode *artdetailNode = node->FirstChild();
+    while (artdetailNode && artdetailNode->FirstChild())
+    {
+      art.insert(make_pair(artdetailNode->ValueStr(), artdetailNode->FirstChild()->ValueStr()));
+      artdetailNode = artdetailNode->NextSibling();
+    }
+  }
+
   return true;
 }
 
-bool CArtist::Save(TiXmlNode *node, const CStdString &tag, const CStdString& strPath)
+bool CArtist::Save(TiXmlNode *node, const std::string &tag, const std::string& strPath)
 {
   if (!node) return false;
 
@@ -112,17 +173,23 @@ bool CArtist::Save(TiXmlNode *node, const CStdString &tag, const CStdString& str
 
   if (!artist) return false;
 
-  XMLUtils::SetString(artist,       "name", strArtist);
-  XMLUtils::SetStringArray(artist, "genre", genre);
-  XMLUtils::SetStringArray(artist, "style", styles);
-  XMLUtils::SetStringArray(artist,  "mood", moods);
-  XMLUtils::SetStringArray(artist, "yearsactive", yearsActive);
-  XMLUtils::SetStringArray(artist, "instruments", instruments);
-  XMLUtils::SetString(artist,        "born", strBorn);
-  XMLUtils::SetString(artist,      "formed", strFormed);
-  XMLUtils::SetString(artist,   "biography", strBiography);
-  XMLUtils::SetString(artist,        "died", strDied);
-  XMLUtils::SetString(artist,   "disbanded", strDisbanded);
+  XMLUtils::SetString(artist,                      "name", strArtist);
+  XMLUtils::SetString(artist,       "musicBrainzArtistID", strMusicBrainzArtistID);
+  XMLUtils::SetString(artist,                  "sortname", strSortName);
+  XMLUtils::SetString(artist,                      "type", strType);
+  XMLUtils::SetString(artist,                    "gender", strGender);
+  XMLUtils::SetString(artist,            "disambiguation", strDisambiguation);
+  XMLUtils::SetStringArray(artist,                "genre", genre);
+  XMLUtils::SetStringArray(artist,                "style", styles);
+  XMLUtils::SetStringArray(artist,                 "mood", moods);
+  XMLUtils::SetStringArray(artist,          "yearsactive", yearsActive);
+  XMLUtils::SetStringArray(artist,          "instruments", instruments);
+  XMLUtils::SetString(artist,                      "born", strBorn);
+  XMLUtils::SetString(artist,                    "formed", strFormed);
+  XMLUtils::SetString(artist,                 "biography", strBiography);
+  XMLUtils::SetString(artist,                      "died", strDied);
+  XMLUtils::SetString(artist,                 "disbanded", strDisbanded);
+  // Available thumbs
   if (!thumbURL.m_xml.empty())
   {
     CXBMCTinyXML doc;
@@ -135,6 +202,7 @@ bool CArtist::Save(TiXmlNode *node, const CStdString &tag, const CStdString& str
     }
   }
   XMLUtils::SetString(artist,        "path", strPath);
+  // Available fanart
   if (fanart.m_xml.size())
   {
     CXBMCTinyXML doc;
@@ -142,8 +210,8 @@ bool CArtist::Save(TiXmlNode *node, const CStdString &tag, const CStdString& str
     artist->InsertEndChild(*doc.RootElement());
   }
 
-  // albums
-  for (vector< pair<CStdString,CStdString> >::const_iterator it = discography.begin(); it != discography.end(); ++it)
+  // Discography
+  for (std::vector<std::pair<std::string,std::string> >::const_iterator it = discography.begin(); it != discography.end(); ++it)
   {
     // add a <album> tag
     TiXmlElement cast("album");
@@ -159,5 +227,10 @@ bool CArtist::Save(TiXmlNode *node, const CStdString &tag, const CStdString& str
   }
 
   return true;
+}
+
+void CArtist::SetDateAdded(const std::string& strDateAdded)
+{
+  dateAdded.SetFromDBDateTime(strDateAdded);
 }
 

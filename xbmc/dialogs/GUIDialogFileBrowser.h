@@ -1,30 +1,20 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
 #pragma once
 
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
+#include <string>
+#include <vector>
 
 #include "guilib/GUIDialog.h"
 #include "filesystem/VirtualDirectory.h"
 #include "filesystem/DirectoryHistory.h"
-#include "GUIViewControl.h"
+#include "view/GUIViewControl.h"
 #include "pictures/PictureThumbLoader.h"
 
 class CFileItem;
@@ -34,64 +24,64 @@ class CGUIDialogFileBrowser : public CGUIDialog, public IBackgroundLoaderObserve
 {
 public:
   CGUIDialogFileBrowser(void);
-  virtual ~CGUIDialogFileBrowser(void);
-  virtual bool OnMessage(CGUIMessage& message);
-  virtual bool OnAction(const CAction &action);
-  virtual bool OnBack(int actionID);
-  virtual void FrameMove();
-  virtual void OnWindowLoaded();
-  virtual void OnWindowUnload();
+  ~CGUIDialogFileBrowser(void) override;
+  bool OnMessage(CGUIMessage& message) override;
+  bool OnAction(const CAction &action) override;
+  bool OnBack(int actionID) override;
+  void FrameMove() override;
+  void OnWindowLoaded() override;
+  void OnWindowUnload() override;
   bool IsConfirmed() { return m_bConfirmed; };
-  void SetHeading(const CStdString &heading);
+  void SetHeading(const std::string &heading);
 
-  static bool ShowAndGetDirectory(const VECSOURCES &shares, const CStdString &heading, CStdString &path, bool bWriteOnly=false);
-  static bool ShowAndGetFile(const VECSOURCES &shares, const CStdString &mask, const CStdString &heading, CStdString &path, bool useThumbs = false, bool useFileDirectories = false);
-  static bool ShowAndGetFile(const CStdString &directory, const CStdString &mask, const CStdString &heading, CStdString &path, bool useThumbs = false, bool useFileDirectories = false, bool singleList = false);
-  static bool ShowAndGetSource(CStdString &path, bool allowNetworkShares, VECSOURCES* additionalShare = NULL, const CStdString& strType="");
-  static bool ShowAndGetFileList(const VECSOURCES &shares, const CStdString &mask, const CStdString &heading, CStdStringArray &path, bool useThumbs = false, bool useFileDirectories = false);
-  static bool ShowAndGetImage(const VECSOURCES &shares, const CStdString &heading, CStdString &path);
-  static bool ShowAndGetImage(const CFileItemList &items, const VECSOURCES &shares, const CStdString &heading, CStdString &path, bool* flip=NULL, int label=21371);
-  static bool ShowAndGetImageList(const VECSOURCES &shares, const CStdString &heading, CStdStringArray &path);
+  static bool ShowAndGetDirectory(const VECSOURCES &shares, const std::string &heading, std::string &path, bool bWriteOnly=false);
+  static bool ShowAndGetFile(const VECSOURCES &shares, const std::string &mask, const std::string &heading, std::string &path, bool useThumbs = false, bool useFileDirectories = false);
+  static bool ShowAndGetFile(const std::string &directory, const std::string &mask, const std::string &heading, std::string &path, bool useThumbs = false, bool useFileDirectories = false, bool singleList = false);
+  static bool ShowAndGetSource(std::string &path, bool allowNetworkShares, VECSOURCES* additionalShare = NULL, const std::string& strType="");
+  static bool ShowAndGetFileList(const VECSOURCES &shares, const std::string &mask, const std::string &heading, std::vector<std::string> &path, bool useThumbs = false, bool useFileDirectories = false);
+  static bool ShowAndGetImage(const VECSOURCES &shares, const std::string &heading, std::string &path);
+  static bool ShowAndGetImage(const CFileItemList &items, const VECSOURCES &shares, const std::string &heading, std::string &path, bool* flip=NULL, int label=21371);
+  static bool ShowAndGetImageList(const VECSOURCES &shares, const std::string &heading, std::vector<std::string> &path);
 
   void SetSources(const VECSOURCES &shares);
 
-  virtual void OnItemLoaded(CFileItem *item) {};
+  void OnItemLoaded(CFileItem *item) override {};
 
-  virtual bool HasListItems() const { return true; };
-  virtual CFileItemPtr GetCurrentListItem(int offset = 0);
-  int GetViewContainerID() const { return m_viewControl.GetCurrentControl(); };
+  bool HasListItems() const override { return true; };
+  CFileItemPtr GetCurrentListItem(int offset = 0) override;
+  int GetViewContainerID() const override { return m_viewControl.GetCurrentControl(); };
 
 protected:
   void GoParentFolder();
   void OnClick(int iItem);
   void OnSort();
   void ClearFileItems();
-  void Update(const CStdString &strDirectory);
+  void Update(const std::string &strDirectory);
   bool HaveDiscOrConnection( int iDriveType );
   bool OnPopupMenu(int iItem);
   void OnAddNetworkLocation();
   void OnAddMediaSource();
   void OnEditMediaSource(CFileItem* pItem);
-  CGUIControl *GetFirstFocusableControl(int id);
+  CGUIControl *GetFirstFocusableControl(int id) override;
 
   VECSOURCES m_shares;
   XFILE::CVirtualDirectory m_rootDir;
   CFileItemList* m_vecItems;
   CFileItem* m_Directory;
-  CStdString m_strParentPath;
-  CStdString m_selectedPath;
+  std::string m_strParentPath;
+  std::string m_selectedPath;
   CDirectoryHistory m_history;
   int m_browsingForFolders; // 0 - no, 1 - yes, 2 - yes, only writable
   bool m_bConfirmed;
   int m_bFlip;
   bool m_addNetworkShareEnabled;
   bool m_flipEnabled;
-  CStdString m_addSourceType;
+  std::string m_addSourceType;
   bool m_browsingForImages;
   bool m_useFileDirectories;
   bool m_singleList;              // if true, we have no shares or anything
   bool m_multipleSelection;
-  CStdStringArray m_markedPath;
+  std::vector<std::string> m_markedPath;
 
   CPictureThumbLoader m_thumbLoader;
   CGUIViewControl m_viewControl;

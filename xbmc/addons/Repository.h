@@ -1,77 +1,84 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "Addon.h"
-#include "AddonManager.h"
-#include "XBDateTime.h"
-#include "URL.h"
-#include "utils/Job.h"
-#include "threads/CriticalSection.h"
-#include "threads/SingleLock.h"
+#include "utils/Digest.h"
+#include "utils/ProgressJob.h"
+
+struct cp_cfg_element_t;
 
 namespace ADDON
 {
-  class CRepository;
-  typedef boost::shared_ptr<CRepository> RepositoryPtr;
   class CRepository : public CAddon
   {
   public:
-    AddonPtr Clone(const AddonPtr &self) const;
-    CRepository(const AddonProps& props);
-    CRepository(const cp_extension_t *props);
-    virtual ~CRepository();
+    struct DirInfo
+    {
+      AddonVersion version{""};
+      std::string info;
+      std::string checksum;
+      KODI::UTILITY::CDigest::Type checksumType{KODI::UTILITY::CDigest::Type::INVALID};
+      std::string datadir;
+      std::string artdir;
+      KODI::UTILITY::CDigest::Type hashType{KODI::UTILITY::CDigest::Type::INVALID};
+    };
 
-    CStdString Checksum();
+    typedef std::vector<DirInfo> DirList;
 
-    /*! \brief Get the md5 hash for an addon.
-     \param the addon in question.
-     \return the md5 hash for the given addon, empty if non exists.
-     */
-    CStdString GetAddonHash(const AddonPtr& addon);
-    VECADDONS Parse();
+    static std::unique_ptr<CRepository> FromExtension(CAddonInfo addonInfo, const cp_extension_t* ext);
+
+    explicit CRepository(CAddonInfo addonInfo) : CAddon(std::move(addonInfo)) {};
+    CRepository(CAddonInfo addonInfo, DirList dirs);
+
+    enum FetchStatus
+    {
+      STATUS_OK,
+      STATUS_NOT_MODIFIED,
+      STATUS_ERROR
+    };
+
+    FetchStatus FetchIfChanged(const std::string& oldChecksum, std::string& checksum, VECADDONS& addons) const;
+
+    struct ResolveResult
+    {
+      std::string location;
+      KODI::UTILITY::TypedDigest digest;
+    };
+    ResolveResult ResolvePathAndHash(AddonPtr const& addon) const;
+
   private:
-    CStdString FetchChecksum(const CStdString& url);
-    CRepository(const CRepository&, const AddonPtr&);
-    CStdString m_info;
-    CStdString m_checksum;
-    CStdString m_datadir;
-    bool m_compressed; // gzipped info xml
-    bool m_zipped;     // zipped addons
-    bool m_hashes;     // repo supports hashes. e.g. plugin.i.rule-1.0.5.zip.md5
-    CCriticalSection m_critSection;
+    static bool FetchChecksum(const std::string& url, std::string& checksum) noexcept;
+    static bool FetchIndex(const DirInfo& repo, std::string const& digest, VECADDONS& addons) noexcept;
+
+    static DirInfo ParseDirConfiguration(cp_cfg_element_t* configuration);
+
+    DirList m_dirs;
   };
 
-  class CRepositoryUpdateJob : public CJob
+  typedef std::shared_ptr<CRepository> RepositoryPtr;
+
+
+  class CRepositoryUpdateJob : public CProgressJob
   {
   public:
-    CRepositoryUpdateJob(const VECADDONS& repos);
-    virtual ~CRepositoryUpdateJob() {}
+    explicit CRepositoryUpdateJob(const RepositoryPtr& repo);
+    ~CRepositoryUpdateJob() override = default;
+    bool DoWork() override;
+    const RepositoryPtr& GetAddon() const { return m_repo; };
 
-    virtual const char *GetType() const { return "repoupdate"; };
-    virtual bool DoWork();
   private:
-    VECADDONS GrabAddons(RepositoryPtr& repo);
-
-    VECADDONS m_repos;
+    const RepositoryPtr m_repo;
   };
 }
 

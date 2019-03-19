@@ -1,122 +1,93 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-
-#ifdef TARGET_WINDOWS
-#error "The threading options for the cryptography libraries don't need to be and shouldn't be set on Windows. Do not include CryptThreading in your windows project."
-#endif
 
 #include "CryptThreading.h"
 #include "threads/Thread.h"
 #include "utils/log.h"
 
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
-  #include "config.h"
-#else
-#define HAVE_OPENSSL
-#endif
-
-#ifdef HAVE_OPENSSL
 #include <openssl/crypto.h>
-#endif
 
-#ifdef HAVE_GCRYPT
-#include <gcrypt.h>
-#include <errno.h>
+//! @todo Remove support for OpenSSL <1.0 in v19
 
-GCRY_THREAD_OPTION_PTHREAD_IMPL;
-#endif
+#define KODI_OPENSSL_NEEDS_LOCK_CALLBACK (OPENSSL_VERSION_NUMBER < 0x10100000L)
+#define KODI_OPENSSL_USE_THREADID (OPENSSL_VERSION_NUMBER >= 0x10000000L)
 
-/* ========================================================================= */
-/* openssl locking implementation for curl */
-static CCriticalSection* getlock(int index)
+#if KODI_OPENSSL_NEEDS_LOCK_CALLBACK
+namespace
 {
-  return g_cryptThreadingInitializer.get_lock(index);
+
+CCriticalSection* getlock(int index)
+{
+  return g_cryptThreadingInitializer.GetLock(index);
 }
 
-static void lock_callback(int mode, int type, const char* file, int line)
+void lock_callback(int mode, int type, const char* file, int line)
 {
-  if (mode & 0x01 /* CRYPTO_LOCK from openssl/crypto.h */ )
+  if (mode & CRYPTO_LOCK)
     getlock(type)->lock();
   else
     getlock(type)->unlock();
 }
 
-static unsigned long thread_id()
+#if KODI_OPENSSL_USE_THREADID
+void thread_id(CRYPTO_THREADID* tid)
 {
+  // C-style cast required due to vastly differing native ID return types
+  CRYPTO_THREADID_set_numeric(tid, (unsigned long)CThread::GetCurrentThreadId());
+}
+#else
+unsigned long thread_id()
+{
+  // C-style cast required due to vastly differing native ID return types
   return (unsigned long)CThread::GetCurrentThreadId();
 }
-/* ========================================================================= */
+#endif
+
+}
+#endif
 
 CryptThreadingInitializer::CryptThreadingInitializer()
 {
-  bool attemptedToSetSSLMTHook = false;
-#ifdef HAVE_OPENSSL
-  // set up OpenSSL
-  numlocks = CRYPTO_num_locks();
-  CRYPTO_set_id_callback(thread_id);
-  CRYPTO_set_locking_callback(lock_callback);
-  attemptedToSetSSLMTHook = true;
+#if KODI_OPENSSL_NEEDS_LOCK_CALLBACK
+  // OpenSSL < 1.1 needs integration code to support multi-threading
+  // This is absolutely required for libcurl if it uses the OpenSSL backend
+  m_locks.resize(CRYPTO_num_locks());
+#if KODI_OPENSSL_USE_THREADID
+  CRYPTO_THREADID_set_callback(thread_id);
 #else
-  numlocks = 1;
+  CRYPTO_set_id_callback(thread_id);
 #endif
-
-  locks = new CCriticalSection*[numlocks];
-  for (int i = 0; i < numlocks; i++)
-    locks[i] = NULL;
-
-#ifdef HAVE_GCRYPT
-  // set up gcrypt
-  gcry_control(GCRYCTL_SET_THREAD_CBS, &gcry_threads_pthread);
-  attemptedToSetSSLMTHook = true;
+  CRYPTO_set_locking_callback(lock_callback);
 #endif
-
-  if (!attemptedToSetSSLMTHook)
-    CLog::Log(LOGWARNING, "Could not determine the libcurl security library to set the locking scheme. This may cause problem with multithreaded use of ssl or libraries that depend on it (libcurl).");
-  
 }
 
 CryptThreadingInitializer::~CryptThreadingInitializer()
 {
-  CSingleLock l(locksLock);
-#ifdef HAVE_OPENSSL
-  CRYPTO_set_locking_callback(NULL);
+#if KODI_OPENSSL_NEEDS_LOCK_CALLBACK
+  CSingleLock l(m_locksLock);
+#if !KODI_OPENSSL_USE_THREADID
+  CRYPTO_set_id_callback(nullptr);
 #endif
-
-  for (int i = 0; i < numlocks; i++)
-    delete locks[i]; // I always forget ... delete is NULL safe.
-
-  delete [] locks;
+  CRYPTO_set_locking_callback(nullptr);
+  m_locks.clear();
+#endif
 }
 
-CCriticalSection* CryptThreadingInitializer::get_lock(int index)
+CCriticalSection* CryptThreadingInitializer::GetLock(int index)
 {
-  CSingleLock l(locksLock);
-  CCriticalSection* curlock = locks[index];
-  if (curlock == NULL)
+  CSingleLock l(m_locksLock);
+  auto& curlock = m_locks[index];
+  if (!curlock)
   {
-    curlock = new CCriticalSection();
-    locks[index] = curlock;
+    curlock.reset(new CCriticalSection());
   }
 
-  return curlock;
+  return curlock.get();
 }
 
 

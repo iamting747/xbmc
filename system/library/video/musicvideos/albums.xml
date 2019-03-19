@@ -1,5 +1,7 @@
-<node order="5" type="folder">
-  <label>132</label>
-  <path>videodb://3/5</path>
-  <icon>DefaultAlbum.png</icon>
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<node order="60" type="filter">
+	<label>132</label>
+	<icon>DefaultMusicAlbums.png</icon>
+	<content>musicvideos</content>
+	<group>albums</group>
 </node>

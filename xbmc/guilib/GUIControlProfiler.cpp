@@ -1,32 +1,20 @@
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIControlProfiler.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/TimeUtils.h"
+#include "utils/StringUtils.h"
 
 bool CGUIControlProfiler::m_bIsRunning = false;
 
 CGUIControlProfilerItem::CGUIControlProfilerItem(CGUIControlProfiler *pProfiler, CGUIControlProfilerItem *pParent, CGUIControl *pControl)
-: m_pProfiler(pProfiler), m_pParent(pParent), m_pControl(pControl), m_visTime(0), m_renderTime(0)
+: m_pProfiler(pProfiler), m_pParent(pParent), m_pControl(pControl), m_visTime(0), m_renderTime(0), m_i64VisStart(0), m_i64RenderStart(0)
 {
   if (m_pControl)
   {
@@ -92,15 +80,11 @@ void CGUIControlProfilerItem::SaveToXML(TiXmlElement *parent)
   {
   case CGUIControl::GUICONTROL_BUTTON:
     lpszType = "button"; break;
-  case CGUIControl::GUICONTROL_CHECKMARK:
-    lpszType = "checkmark"; break;
   case CGUIControl::GUICONTROL_FADELABEL:
     lpszType = "fadelabel"; break;
   case CGUIControl::GUICONTROL_IMAGE:
   case CGUIControl::GUICONTROL_BORDEREDIMAGE:
     lpszType = "image"; break;
-  case CGUIControl::GUICONTROL_LARGE_IMAGE:
-    lpszType = "largeimage"; break;
   case CGUIControl::GUICONTROL_LABEL:
     lpszType = "label"; break;
   case CGUIControl::GUICONTROL_LISTGROUP:
@@ -111,8 +95,6 @@ void CGUIControlProfilerItem::SaveToXML(TiXmlElement *parent)
     lpszType = "radiobutton"; break;
   case CGUIControl::GUICONTROL_RSS:
     lpszType = "rss"; break;
-  case CGUIControl::GUICONTROL_SELECTBUTTON:
-    lpszType = "selectbutton"; break;
   case CGUIControl::GUICONTROL_SLIDER:
     lpszType = "slider"; break;
   case CGUIControl::GUICONTROL_SETTINGS_SLIDER:
@@ -145,8 +127,6 @@ void CGUIControlProfilerItem::SaveToXML(TiXmlElement *parent)
     lpszType = "scrollbar"; break;
   case CGUIControl::GUICONTROL_LISTLABEL:
     lpszType = "label"; break;
-  case CGUIControl::GUICONTROL_MULTISELECT:
-    lpszType = "multiselect"; break;
   case CGUIControl::GUICONTAINER_LIST:
     lpszType = "list"; break;
   case CGUIControl::GUICONTAINER_WRAPLIST:
@@ -164,20 +144,18 @@ void CGUIControlProfilerItem::SaveToXML(TiXmlElement *parent)
     xmlControl->SetAttribute("type", lpszType);
   if (m_controlID != 0)
   {
-    CStdString str;
-    str.Format("%u", m_controlID);
+    std::string str = StringUtils::Format("%u", m_controlID);
     xmlControl->SetAttribute("id", str.c_str());
   }
 
   float pct = (float)GetTotalTime() / (float)m_pProfiler->GetTotalTime();
   if (pct > 0.01f)
   {
-    CStdString str;
-    str.Format("%.0f", pct * 100.0f);
+    std::string str = StringUtils::Format("%.0f", pct * 100.0f);
     xmlControl->SetAttribute("percent", str.c_str());
   }
 
-  if (!m_strDescription.IsEmpty())
+  if (!m_strDescription.empty())
   {
     TiXmlElement *elem = new TiXmlElement("description");
     xmlControl->LinkEndChild(elem);
@@ -190,16 +168,16 @@ void CGUIControlProfilerItem::SaveToXML(TiXmlElement *parent)
   unsigned int rend = m_renderTime / 100;
   if (vis || rend)
   {
-    CStdString val;
+    std::string val;
     TiXmlElement *elem = new TiXmlElement("rendertime");
     xmlControl->LinkEndChild(elem);
-    val.Format("%u", rend);
+    val = StringUtils::Format("%u", rend);
     TiXmlText *text = new TiXmlText(val.c_str());
     elem->LinkEndChild(text);
 
     elem = new TiXmlElement("visibletime");
     xmlControl->LinkEndChild(elem);
-    val.Format("%u", vis);
+    val = StringUtils::Format("%u", vis);
     text = new TiXmlText(val.c_str());
     elem->LinkEndChild(text);
   }
@@ -239,7 +217,7 @@ CGUIControlProfilerItem *CGUIControlProfilerItem::FindOrAddControl(CGUIControl *
 }
 
 CGUIControlProfiler::CGUIControlProfiler(void)
-: m_ItemHead(NULL, NULL, NULL), m_pLastItem(NULL), m_iMaxFrameCount(200)
+: m_ItemHead(NULL, NULL, NULL), m_pLastItem(NULL)
 // m_bIsRunning(false), no isRunning because it is static
 {
   m_fPerfScale = 100000.0f / CurrentHostFrequency();
@@ -337,7 +315,7 @@ void CGUIControlProfiler::EndFrame(void)
 
 bool CGUIControlProfiler::SaveResults(void)
 {
-  if (m_strOutputFile.IsEmpty())
+  if (m_strOutputFile.empty())
     return false;
 
   CXBMCTinyXML doc;
@@ -345,8 +323,7 @@ bool CGUIControlProfiler::SaveResults(void)
   doc.InsertEndChild(decl);
 
   TiXmlElement *root = new TiXmlElement("guicontrolprofiler");
-  CStdString str;
-  str.Format("%d", m_iFrameCount);
+  std::string str = StringUtils::Format("%d", m_iFrameCount);
   root->SetAttribute("framecount", str.c_str());
   root->SetAttribute("timeunit", "ms");
   doc.LinkEndChild(root);

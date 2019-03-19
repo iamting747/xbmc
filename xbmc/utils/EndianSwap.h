@@ -1,36 +1,18 @@
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
- /* Functions taken from SDL (SDL_endian.h) */
+#pragma once
 
-#ifndef __ENDIAN_SWAP_H__
-#define __ENDIAN_SWAP_H__
+ /* Endian_SwapXX functions taken from SDL (SDL_endian.h) */
 
-/* Include config.h to define (or not) WORDS_BIGENDIAN
-   File created by configure */
-#if defined(__linux__) || defined(TARGET_DARWIN)
-#include "config.h"
+#ifdef TARGET_POSIX
 #include <inttypes.h>
-#endif
-#ifdef _WIN32
+#elif TARGET_WINDOWS
 #define __inline__ __inline
 #include <stdint.h>
 #endif
@@ -83,6 +65,8 @@ static __inline__ uint64_t Endian_Swap64(uint64_t x) {
 
 }
 
+void Endian_Swap16_buf(uint16_t *dst, uint16_t *src, int w);
+
 #ifndef WORDS_BIGENDIAN
 #define Endian_SwapLE16(X) (X)
 #define Endian_SwapLE32(X) (X)
@@ -104,4 +88,3 @@ static __inline__ uint64_t Endian_Swap64(uint64_t x) {
 }
 #endif
 
-#endif  /* __ENDIAN_SWAP_H__ */

@@ -1,32 +1,20 @@
 /*
- *      Copyright (C) 2010 Team Boxee
+ *  Copyright (C) 2010 Team Boxee
  *      http://www.boxee.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-
 #include "UDFFile.h"
 #include "URL.h"
-#include "Util.h"
 
 #include <sys/stat.h>
 #include <errno.h>
+#include <limits.h>
 
-using namespace std;
 using namespace XFILE;
 
 //////////////////////////////////////////////////////////////////////
@@ -34,8 +22,8 @@ using namespace XFILE;
 //////////////////////////////////////////////////////////////////////
 //*********************************************************************************************
 CUDFFile::CUDFFile()
+  : m_hFile(INVALID_HANDLE_VALUE)
 {
-  m_bOpened = false;
 }
 
 //*********************************************************************************************
@@ -49,11 +37,10 @@ CUDFFile::~CUDFFile()
 //*********************************************************************************************
 bool CUDFFile::Open(const CURL& url)
 {
-  CStdString strFName = url.GetHostName();
+  if(!m_udfIsoReaderLocal.Open(url.GetHostName().c_str()) || url.GetFileName().empty())
+     return false;
 
-  CURL::Decode(strFName);
-
-  m_hFile = m_udfIsoReaderLocal.OpenFile((char*)strFName.c_str());
+  m_hFile = m_udfIsoReaderLocal.OpenFile(url.GetFileName().c_str());
   if (m_hFile == INVALID_HANDLE_VALUE)
   {
     m_bOpened = false;
@@ -65,15 +52,18 @@ bool CUDFFile::Open(const CURL& url)
 }
 
 //*********************************************************************************************
-unsigned int CUDFFile::Read(void *lpBuf, int64_t uiBufSize)
+ssize_t CUDFFile::Read(void *lpBuf, size_t uiBufSize)
 {
-  if (!m_bOpened) return 0;
+  if (uiBufSize > SSIZE_MAX)
+    uiBufSize = SSIZE_MAX;
+  if (uiBufSize > LONG_MAX)
+    uiBufSize = LONG_MAX;
+
+  if (!m_bOpened)
+    return -1;
   char *pData = (char *)lpBuf;
 
-  int iResult = m_udfIsoReaderLocal.ReadFile( m_hFile, (unsigned char*)pData, (long)uiBufSize);
-  if (iResult == -1)
-    return 0;
-  return iResult;
+  return m_udfIsoReaderLocal.ReadFile( m_hFile, (unsigned char*)pData, (long)uiBufSize);
 }
 
 //*********************************************************************************************
@@ -81,6 +71,7 @@ void CUDFFile::Close()
 {
   if (!m_bOpened) return ;
   m_udfIsoReaderLocal.CloseFile( m_hFile);
+  m_bOpened = false;
 }
 
 //*********************************************************************************************
@@ -107,29 +98,30 @@ int64_t CUDFFile::GetPosition()
 
 bool CUDFFile::Exists(const CURL& url)
 {
-  string strFName = "\\";
-  strFName += url.GetFileName();
-  for (int i = 0; i < (int)strFName.size(); ++i )
-  {
-    if (strFName[i] == '/') strFName[i] = '\\';
-  }
-  m_hFile = m_udfIsoReaderLocal.OpenFile((char*)strFName.c_str());
+  if(!m_udfIsoReaderLocal.Open(url.GetHostName().c_str()))
+     return false;
+
+  m_hFile = m_udfIsoReaderLocal.OpenFile(url.GetFileName().c_str());
   if (m_hFile == INVALID_HANDLE_VALUE)
     return false;
 
   m_udfIsoReaderLocal.CloseFile(m_hFile);
+  m_hFile = INVALID_HANDLE_VALUE;
   return true;
 }
 
 int CUDFFile::Stat(const CURL& url, struct __stat64* buffer)
 {
-  string strFName = "\\";
-  strFName += url.GetFileName();
-  for (int i = 0; i < (int)strFName.size(); ++i )
+  if(!m_udfIsoReaderLocal.Open(url.GetHostName().c_str()))
+     return -1;
+
+  if (url.GetFileName().empty())
   {
-    if (strFName[i] == '/') strFName[i] = '\\';
+    buffer->st_mode = _S_IFDIR;
+    return 0;
   }
-  m_hFile = m_udfIsoReaderLocal.OpenFile((char*)strFName.c_str());
+
+  m_hFile = m_udfIsoReaderLocal.OpenFile(url.GetFileName().c_str());
   if (m_hFile != INVALID_HANDLE_VALUE)
   {
     buffer->st_size = m_udfIsoReaderLocal.GetFileSize(m_hFile);

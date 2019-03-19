@@ -1,51 +1,59 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-#include "system.h"
+
+#pragma once
+
+#include <string>
+#include <vector>
+
 #include "MediaSource.h"
+#ifdef HAS_DVD_DRIVE
+#include "cdioSupport.h"
+#endif
 
 class IStorageEventsCallback
 {
 public:
-  virtual ~IStorageEventsCallback() { }
+  virtual ~IStorageEventsCallback() = default;
 
-  virtual void OnStorageAdded(const CStdString &label, const CStdString &path) = 0;
-  virtual void OnStorageSafelyRemoved(const CStdString &label) = 0;
-  virtual void OnStorageUnsafelyRemoved(const CStdString &label) = 0;
+  virtual void OnStorageAdded(const std::string &label, const std::string &path) = 0;
+  virtual void OnStorageSafelyRemoved(const std::string &label) = 0;
+  virtual void OnStorageUnsafelyRemoved(const std::string &label) = 0;
 };
 
 class IStorageProvider
 {
 public:
-  virtual ~IStorageProvider() { }
+  virtual ~IStorageProvider() = default;
 
   virtual void Initialize() = 0;
   virtual void Stop() = 0;
 
   virtual void GetLocalDrives(VECSOURCES &localDrives) = 0;
   virtual void GetRemovableDrives(VECSOURCES &removableDrives) = 0;
+  virtual std::string GetFirstOpticalDeviceFileName()
+  {
+#ifdef HAS_DVD_DRIVE
+    return std::string(MEDIA_DETECT::CLibcdio::GetInstance()->GetDeviceFileName());
+#else
+    return "";
+#endif
+  }
 
-  virtual bool Eject(CStdString mountpath) = 0;
+  virtual bool Eject(const std::string& mountpath) = 0;
 
-  virtual std::vector<CStdString> GetDiskUsage() = 0;
+  virtual std::vector<std::string> GetDiskUsage() = 0;
 
   virtual bool PumpDriveChangeEvents(IStorageEventsCallback *callback) = 0;
+
+  /**\brief Called by media manager to create platform storage provider
+  *
+  * This method used to create platfrom specified storage provider
+  */
+  static IStorageProvider* CreateInstance();
 };

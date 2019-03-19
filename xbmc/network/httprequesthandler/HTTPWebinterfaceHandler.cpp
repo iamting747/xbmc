@@ -1,127 +1,126 @@
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "HTTPWebinterfaceHandler.h"
-#include "network/WebServer.h"
+#include "ServiceBroker.h"
 #include "addons/AddonManager.h"
-#include "utils/URIUtils.h"
+#include "addons/AddonSystemSettings.h"
+#include "addons/Webinterface.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
+#include "utils/FileUtils.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
 
-#define DEFAULT_PAGE        "index.html"
+#define WEBSERVER_DIRECTORY_SEPARATOR "/"
 
-using namespace std;
-using namespace ADDON;
-using namespace XFILE;
+CHTTPWebinterfaceHandler::CHTTPWebinterfaceHandler(const HTTPRequest &request)
+  : CHTTPFileHandler(request)
+{
+  // resolve the URL into a file path and a HTTP response status
+  std::string file;
+  int responseStatus = ResolveUrl(request.pathUrl, file);
 
-bool CHTTPWebinterfaceHandler::CheckHTTPRequest(const HTTPRequest &request)
+  // set the file and the HTTP response status
+  SetFile(file, responseStatus);
+}
+
+bool CHTTPWebinterfaceHandler::CanHandleRequest(const HTTPRequest &request) const
 {
   return true;
 }
 
-int CHTTPWebinterfaceHandler::HandleHTTPRequest(const HTTPRequest &request)
-{
-  m_responseCode = ResolveUrl(request.url, m_url);
-  if (m_responseCode != MHD_HTTP_OK)
-  {
-    if (m_responseCode == MHD_HTTP_FOUND)
-      m_responseType = HTTPRedirect;
-    else
-      m_responseType = HTTPError;
-
-    return MHD_YES;
-  }
-
-  m_responseType = HTTPFileDownload;
-
-  return MHD_YES;
-}
-
 int CHTTPWebinterfaceHandler::ResolveUrl(const std::string &url, std::string &path)
 {
-  AddonPtr dummyAddon;
+  ADDON::AddonPtr dummyAddon;
   return ResolveUrl(url, path, dummyAddon);
 }
 
-int CHTTPWebinterfaceHandler::ResolveUrl(const std::string &url, std::string &path, AddonPtr &addon)
+int CHTTPWebinterfaceHandler::ResolveUrl(const std::string &url, std::string &path, ADDON::AddonPtr &addon)
 {
-  string addonPath;
-  bool useDefaultWebInterface = true;
+  // determine the addon and addon's path
+  if (!ResolveAddon(url, addon, path))
+    return MHD_HTTP_NOT_FOUND;
 
-  path = url;
-  if (url.find("/addons/") == 0 && url.size() > 8)
+  if (XFILE::CDirectory::Exists(path))
   {
-    CStdStringArray components;
-    CUtil::Tokenize(path, components, "/");
-    if (components.size() > 1)
+    if (URIUtils::GetFileName(path).empty())
     {
-      CAddonMgr::Get().GetAddon(components.at(1), addon);
-      if (addon)
-      {
-        size_t pos;
-        pos = path.find('/', 8); // /addons/ = 8 characters +1 to start behind the last slash
-        if (pos != string::npos)
-          path = path.substr(pos);
-        else // missing trailing slash
-        {
-          path = url + "/";
-          return MHD_HTTP_FOUND;
-        }
-
-        useDefaultWebInterface = false;
-        addonPath = addon->Path();
-        if (addon->Type() != ADDON_WEB_INTERFACE) // No need to append /htdocs for web interfaces
-          addonPath = URIUtils::AddFileToFolder(addonPath, "/htdocs/");
-      }
+      // determine the actual file path using the default entry point
+      if (addon != NULL && addon->Type() == ADDON::ADDON_WEB_INTERFACE)
+        path = std::dynamic_pointer_cast<ADDON::CWebinterface>(addon)->GetEntryPoint(path);
     }
     else
-      return MHD_HTTP_NOT_FOUND;
-  }
-
-  if (path.compare("/") == 0)
-    path.append(DEFAULT_PAGE);
-
-  if (useDefaultWebInterface)
-  {
-    CAddonMgr::Get().GetDefault(ADDON_WEB_INTERFACE, addon);
-    if (addon)
-      addonPath = addon->Path();
-  }
-
-  if (addon)
-    path = URIUtils::AddFileToFolder(addon->Path(), path);
-  
-  if (CDirectory::Exists(path))
-  {
-    if (path.at(path.size() -1) == '/')
-      path.append(DEFAULT_PAGE);
-    else
     {
-      path = url + "/";
+      URIUtils::AddSlashAtEnd(path);
       return MHD_HTTP_FOUND;
     }
   }
 
-  if (!CFile::Exists(path))
+  if (!CFileUtils::CheckFileAccessAllowed(path))
+    return MHD_HTTP_NOT_FOUND;
+
+  if (!XFILE::CFile::Exists(path))
     return MHD_HTTP_NOT_FOUND;
 
   return MHD_HTTP_OK;
+}
+
+bool CHTTPWebinterfaceHandler::ResolveAddon(const std::string &url, ADDON::AddonPtr &addon)
+{
+  std::string addonPath;
+  return ResolveAddon(url, addon, addonPath);
+}
+
+bool CHTTPWebinterfaceHandler::ResolveAddon(const std::string &url, ADDON::AddonPtr &addon, std::string &addonPath)
+{
+  std::string path = url;
+
+  // check if the URL references a specific addon
+  if (url.find("/addons/") == 0 && url.size() > 8)
+  {
+    std::vector<std::string> components;
+    StringUtils::Tokenize(path, components, WEBSERVER_DIRECTORY_SEPARATOR);
+    if (components.size() <= 1)
+      return false;
+
+    if (!CServiceBroker::GetAddonMgr().GetAddon(components.at(1), addon) || addon == NULL)
+      return false;
+
+    addonPath = addon->Path();
+    if (addon->Type() != ADDON::ADDON_WEB_INTERFACE) // No need to append /htdocs for web interfaces
+      addonPath = URIUtils::AddFileToFolder(addonPath, "/htdocs/");
+
+    // remove /addons/<addon-id> from the path
+    components.erase(components.begin(), components.begin() + 2);
+
+    // determine the path within the addon
+    path = StringUtils::Join(components, WEBSERVER_DIRECTORY_SEPARATOR);
+  }
+  else if (!ADDON::CAddonSystemSettings::GetInstance().GetActive(ADDON::ADDON_WEB_INTERFACE, addon) || addon == NULL)
+    return false;
+
+  // get the path of the addon
+  addonPath = addon->Path();
+
+  // add /htdocs/ to the addon's path if it's not a webinterface
+  if (addon->Type() != ADDON::ADDON_WEB_INTERFACE)
+    addonPath = URIUtils::AddFileToFolder(addonPath, "/htdocs/");
+
+  // append the path within the addon to the path of the addon
+  addonPath = URIUtils::AddFileToFolder(addonPath, path);
+
+  // ensure that we don't have a directory traversal hack here
+  // by checking if the resolved absolute path is inside the addon path
+  std::string realPath = URIUtils::GetRealPath(addonPath);
+  std::string realAddonPath = URIUtils::GetRealPath(addon->Path());
+  if (!URIUtils::PathHasParent(realPath, realAddonPath, true))
+    return false;
+
+  return true;
 }

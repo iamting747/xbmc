@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "AnnouncementManager.h"
@@ -29,21 +16,42 @@
 #include "music/tags/MusicInfoTag.h"
 #include "music/MusicDatabase.h"
 #include "video/VideoDatabase.h"
+#include "pvr/channels/PVRChannel.h"
+#include "PlayListPlayer.h"
 
 #define LOOKUP_PROPERTY "database-lookup"
 
-using namespace std;
 using namespace ANNOUNCEMENT;
 
-CCriticalSection CAnnouncementManager::m_critSection;
-vector<IAnnouncer *> CAnnouncementManager::m_announcers;
+CAnnouncementManager::CAnnouncementManager() : CThread("Announce")
+{
+}
+
+CAnnouncementManager::~CAnnouncementManager()
+{
+  Deinitialize();
+}
+
+void CAnnouncementManager::Start()
+{
+  Create();
+}
+
+void CAnnouncementManager::Deinitialize()
+{
+  m_bStop = true;
+  m_queueEvent.Set();
+  StopThread();
+  CSingleLock lock (m_announcersCritSection);
+  m_announcers.clear();
+}
 
 void CAnnouncementManager::AddAnnouncer(IAnnouncer *listener)
 {
   if (!listener)
     return;
 
-  CSingleLock lock (m_critSection);
+  CSingleLock lock (m_announcersCritSection);
   m_announcers.push_back(listener);
 }
 
@@ -52,7 +60,7 @@ void CAnnouncementManager::RemoveAnnouncer(IAnnouncer *listener)
   if (!listener)
     return;
 
-  CSingleLock lock (m_critSection);
+  CSingleLock lock (m_announcersCritSection);
   for (unsigned int i = 0; i < m_announcers.size(); i++)
   {
     if (m_announcers[i] == listener)
@@ -66,82 +74,132 @@ void CAnnouncementManager::RemoveAnnouncer(IAnnouncer *listener)
 void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message)
 {
   CVariant data;
-  Announce(flag, sender, message, data);
+  Announce(flag, sender, message, CFileItemPtr(), data);
 }
 
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, CVariant &data)
+void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
 {
-  CLog::Log(LOGDEBUG, "CAnnouncementManager - Announcement: %s from %s", message, sender);
-  CSingleLock lock (m_critSection);
-  for (unsigned int i = 0; i < m_announcers.size(); i++)
-    m_announcers[i]->Announce(flag, sender, message, data);
+  Announce(flag, sender, message, CFileItemPtr(), data);
 }
 
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item)
+void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, const std::shared_ptr<const CFileItem>& item)
 {
   CVariant data;
   Announce(flag, sender, message, item, data);
 }
 
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item, CVariant &data)
+void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, const std::shared_ptr<const CFileItem>& item, const CVariant &data)
 {
-  if (!item.get())
+  CAnnounceData announcement;
+  announcement.flag = flag;
+  announcement.sender = sender;
+  announcement.message = message;
+  announcement.data = data;
+
+  if (item != nullptr)
+    announcement.item = CFileItemPtr(new CFileItem(*item));
+
   {
-    Announce(flag, sender, message, data);
+    CSingleLock lock (m_queueCritSection);
+    m_announcementQueue.push_back(announcement);
+  }
+  m_queueEvent.Set();
+}
+
+void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+{
+  CLog::Log(LOGDEBUG, "CAnnouncementManager - Announcement: %s from %s", message, sender);
+
+  CSingleLock lock(m_announcersCritSection);
+
+  // Make a copy of announcers. They may be removed or even remove themselves during execution of IAnnouncer::Announce()!
+
+  std::vector<IAnnouncer *> announcers(m_announcers);
+  for (unsigned int i = 0; i < announcers.size(); i++)
+    announcers[i]->Announce(flag, sender, message, data);
+}
+
+void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item, const CVariant &data)
+{
+  if (item == nullptr)
+  {
+    DoAnnounce(flag, sender, message, data);
     return;
   }
 
   // Extract db id of item
   CVariant object = data.isNull() || data.isObject() ? data : CVariant::VariantTypeObject;
-  CStdString type;
+  std::string type;
   int id = 0;
 
-  if (item->HasVideoInfoTag())
+  if(item->HasPVRChannelInfoTag())
+  {
+    const PVR::CPVRChannelPtr channel(item->GetPVRChannelInfoTag());
+    id = channel->ChannelID();
+    type = "channel";
+
+    object["item"]["title"] = channel->ChannelName();
+    object["item"]["channeltype"] = channel->IsRadio() ? "radio" : "tv";
+
+    if (data.isMember("player") && data["player"].isMember("playerid"))
+      object["player"]["playerid"] = channel->IsRadio() ? PLAYLIST_MUSIC : PLAYLIST_VIDEO;
+  }
+  else if (item->HasVideoInfoTag() && !item->HasPVRRecordingInfoTag())
   {
     id = item->GetVideoInfoTag()->m_iDbId;
 
-    // TODO: Can be removed once this is properly handled when starting playback of a file
+    //! @todo Can be removed once this is properly handled when starting playback of a file
     if (id <= 0 && !item->GetPath().empty() &&
        (!item->HasProperty(LOOKUP_PROPERTY) || item->GetProperty(LOOKUP_PROPERTY).asBoolean()))
     {
       CVideoDatabase videodatabase;
       if (videodatabase.Open())
       {
-        if (videodatabase.LoadVideoInfo(item->GetPath(), *item->GetVideoInfoTag()))
+        std::string path = item->GetPath();
+        std::string videoInfoTagPath(item->GetVideoInfoTag()->m_strFileNameAndPath);
+        if (StringUtils::StartsWith(videoInfoTagPath, "removable://"))
+          path = videoInfoTagPath;
+        if (videodatabase.LoadVideoInfo(path, *item->GetVideoInfoTag(), VideoDbDetailsNone))
           id = item->GetVideoInfoTag()->m_iDbId;
 
         videodatabase.Close();
       }
     }
 
-    CVideoDatabase::VideoContentTypeToString((VIDEODB_CONTENT_TYPE)item->GetVideoContentType(), type);
+    if (!item->GetVideoInfoTag()->m_type.empty())
+      type = item->GetVideoInfoTag()->m_type;
+    else
+      CVideoDatabase::VideoContentTypeToString((VIDEODB_CONTENT_TYPE)item->GetVideoContentType(), type);
 
     if (id <= 0)
     {
-      // TODO: Can be removed once this is properly handled when starting playback of a file
+      //! @todo Can be removed once this is properly handled when starting playback of a file
       item->SetProperty(LOOKUP_PROPERTY, false);
 
-      object["title"] = item->GetVideoInfoTag()->m_strTitle;
+      std::string title = item->GetVideoInfoTag()->m_strTitle;
+      if (title.empty())
+        title = item->GetLabel();
+      object["item"]["title"] = title;
 
       switch (item->GetVideoContentType())
       {
       case VIDEODB_CONTENT_MOVIES:
-        if (item->GetVideoInfoTag()->m_iYear > 0)
-          object["year"] = item->GetVideoInfoTag()->m_iYear;
+        if (item->GetVideoInfoTag()->HasYear())
+          object["item"]["year"] = item->GetVideoInfoTag()->GetYear();
         break;
       case VIDEODB_CONTENT_EPISODES:
         if (item->GetVideoInfoTag()->m_iEpisode >= 0)
-          object["episode"] = item->GetVideoInfoTag()->m_iEpisode;
+          object["item"]["episode"] = item->GetVideoInfoTag()->m_iEpisode;
         if (item->GetVideoInfoTag()->m_iSeason >= 0)
-          object["season"] = item->GetVideoInfoTag()->m_iSeason;
+          object["item"]["season"] = item->GetVideoInfoTag()->m_iSeason;
         if (!item->GetVideoInfoTag()->m_strShowTitle.empty())
-          object["showtitle"] = item->GetVideoInfoTag()->m_strShowTitle;
+          object["item"]["showtitle"] = item->GetVideoInfoTag()->m_strShowTitle;
         break;
       case VIDEODB_CONTENT_MUSICVIDEOS:
         if (!item->GetVideoInfoTag()->m_strAlbum.empty())
-          object["album"] = item->GetVideoInfoTag()->m_strAlbum;
+          object["item"]["album"] = item->GetVideoInfoTag()->m_strAlbum;
         if (!item->GetVideoInfoTag()->m_artist.empty())
-          object["artist"] = StringUtils::Join(item->GetVideoInfoTag()->m_artist, " / ");
+          object["item"]["artist"] = StringUtils::Join(item->GetVideoInfoTag()->m_artist, " / ");
         break;
       }
     }
@@ -149,9 +207,9 @@ void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, c
   else if (item->HasMusicInfoTag())
   {
     id = item->GetMusicInfoTag()->GetDatabaseId();
-    type = "song";
+    type = MediaTypeSong;
 
-    // TODO: Can be removed once this is properly handled when starting playback of a file
+    //! @todo Can be removed once this is properly handled when starting playback of a file
     if (id <= 0 && !item->GetPath().empty() &&
        (!item->HasProperty(LOOKUP_PROPERTY) || item->GetProperty(LOOKUP_PROPERTY).asBoolean()))
     {
@@ -159,10 +217,9 @@ void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, c
       if (musicdatabase.Open())
       {
         CSong song;
-        if (musicdatabase.GetSongByFileName(item->GetPath(), song))
+        if (musicdatabase.GetSongByFileName(item->GetPath(), song, item->m_lStartOffset))
         {
           item->GetMusicInfoTag()->SetSong(song);
-          item->SetMusicThumb();
           id = item->GetMusicInfoTag()->GetDatabaseId();
         }
 
@@ -172,18 +229,32 @@ void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, c
 
     if (id <= 0)
     {
-      // TODO: Can be removed once this is properly handled when starting playback of a file
+      //! @todo Can be removed once this is properly handled when starting playback of a file
       item->SetProperty(LOOKUP_PROPERTY, false);
 
-      object["title"] = item->GetMusicInfoTag()->GetTitle();
+      std::string title = item->GetMusicInfoTag()->GetTitle();
+      if (title.empty())
+        title = item->GetLabel();
+      object["item"]["title"] = title;
 
       if (item->GetMusicInfoTag()->GetTrackNumber() > 0)
-        object["track"] = item->GetMusicInfoTag()->GetTrackNumber();
+        object["item"]["track"] = item->GetMusicInfoTag()->GetTrackNumber();
       if (!item->GetMusicInfoTag()->GetAlbum().empty())
-        object["album"] = item->GetMusicInfoTag()->GetAlbum();
+        object["item"]["album"] = item->GetMusicInfoTag()->GetAlbum();
       if (!item->GetMusicInfoTag()->GetArtist().empty())
-        object["artist"] = item->GetMusicInfoTag()->GetArtist();
+        object["item"]["artist"] = item->GetMusicInfoTag()->GetArtist();
     }
+  }
+  else if (item->IsVideo())
+  {
+    // video item but has no video info tag.
+    type = "movie";
+    object["item"]["title"] = item->GetLabel();
+  }
+  else if (item->HasPictureInfoTag())
+  {
+    type = "picture";
+    object["item"]["file"] = item->GetPath();
   }
   else
     type = "unknown";
@@ -192,5 +263,29 @@ void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, c
   if (id > 0)
     object["item"]["id"] = id;
 
-  Announce(flag, sender, message, object);
+  DoAnnounce(flag, sender, message, object);
+}
+
+void CAnnouncementManager::Process()
+{
+  SetPriority(GetMinPriority());
+
+  while (!m_bStop)
+  {
+    CSingleLock lock (m_queueCritSection);
+    if (!m_announcementQueue.empty())
+    {
+      auto announcement = m_announcementQueue.front();
+      m_announcementQueue.pop_front();
+      {
+        CSingleExit ex(m_queueCritSection);
+        DoAnnounce(announcement.flag, announcement.sender.c_str(), announcement.message.c_str(), announcement.item, announcement.data);
+      }
+    }
+    else
+    {
+      CSingleExit ex(m_queueCritSection);
+      m_queueEvent.Wait();
+    }
+  }
 }

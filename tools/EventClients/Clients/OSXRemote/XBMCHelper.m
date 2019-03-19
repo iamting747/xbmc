@@ -25,10 +25,10 @@
     {
       [remote setDelegate:self];
       [remote setSimulateHoldEvents:NO];
-      //for now, we're using lending of exlusive lock
+      //for now, we're using lending of exclusive lock
       //kHIDRemoteModeExclusiveAuto isn't working, as we're a background daemon
       //one possibility would be to know when XBMC is running. Once we know that,
-      //we could aquire exclusive lock when it's running, and release _exclusive_
+      //we could acquire exclusive lock when it's running, and release _exclusive_
       //access once done
       [remote setExclusiveLockLendingEnabled:YES];
 
@@ -148,7 +148,7 @@
         [mp_wrapper handleEvent:ATV_BUTTON_RIGHT];
       else
         [mp_wrapper handleEvent:ATV_BUTTON_RIGHT_RELEASE];
-      break;      
+      break;
     case kHIDRemoteButtonCodeCenter:
       if(isPressed) [mp_wrapper handleEvent:ATV_BUTTON_CENTER];
       break;
@@ -183,7 +183,7 @@
       break;
     case kHIDRemoteButtonCodeCenterHold:
       if(isPressed) [mp_wrapper handleEvent:ATV_BUTTON_CENTER_H];
-      break;      
+      break;
     case kHIDRemoteButtonCodeMenuHold:
       if(isPressed) {
         [self checkAndLaunchApp]; //launch mp_app_path if it's not running
@@ -202,13 +202,13 @@
 
 
 // Notification of ID changes
-- (void)hidRemote:(HIDRemote *)hidRemote remoteIDChangedOldID:(SInt32)old 
+- (void)hidRemote:(HIDRemote *)hidRemote remoteIDChangedOldID:(SInt32)old
             newID:(SInt32)newID forHardwareWithAttributes:(NSMutableDictionary *)attributes
 {
   if(m_verbose)
     NSLog(@"Change of remote ID from %d to %d", old, newID);
   [mp_wrapper switchRemote: newID];
-  
+
 }
 
 #pragma mark -
@@ -254,6 +254,11 @@
 		case kHIDRemoteButtonCodeMenuHold:
 			return (@"Menu (hold)");
       break;
+        case kHIDRemoteButtonCodePlay:
+            return (@"Play");
+      break;
+        default:
+      break;
 	}
 	return ([NSString stringWithFormat:@"Button %x", (int)buttonCode]);
 }
@@ -268,7 +273,7 @@
   NSFileManager *fileManager = [NSFileManager defaultManager];
   if([fileManager fileExistsAtPath:mp_app_path]){
     if(mp_home_path && [mp_home_path length])
-      setenv("XBMC_HOME", [mp_home_path UTF8String], 1);
+      setenv("KODI_HOME", [mp_home_path UTF8String], 1);
     //launch or activate xbmc
     if(![[NSWorkspace sharedWorkspace] launchApplication:mp_app_path])
       ELOG(@"Error launching %@", mp_app_path);

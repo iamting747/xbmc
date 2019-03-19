@@ -1,61 +1,53 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIDialogVideoOSD.h"
 #include "Application.h"
 #include "GUIUserMessages.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "input/MouseStat.h"
+#include "guilib/WindowIDs.h"
+#include "input/actions/ActionIDs.h"
+#include "input/InputManager.h"
+#include "ServiceBroker.h"
+
+using namespace PVR;
 
 CGUIDialogVideoOSD::CGUIDialogVideoOSD(void)
     : CGUIDialog(WINDOW_DIALOG_VIDEO_OSD, "VideoOSD.xml")
 {
+  m_loadType = KEEP_IN_MEMORY;
 }
 
-CGUIDialogVideoOSD::~CGUIDialogVideoOSD(void)
-{
-}
+CGUIDialogVideoOSD::~CGUIDialogVideoOSD(void) = default;
 
 void CGUIDialogVideoOSD::FrameMove()
 {
   if (m_autoClosing)
   {
     // check for movement of mouse or a submenu open
-    if (g_Mouse.IsActive() || g_windowManager.IsWindowActive(WINDOW_DIALOG_AUDIO_OSD_SETTINGS)
-                           || g_windowManager.IsWindowActive(WINDOW_DIALOG_VIDEO_OSD_SETTINGS)
-                           || g_windowManager.IsWindowActive(WINDOW_DIALOG_VIDEO_BOOKMARKS)
-                           || g_windowManager.IsWindowActive(WINDOW_DIALOG_OSD_TELETEXT))
-      SetAutoClose(100); // enough for 10fps
+    if (CServiceBroker::GetInputManager().IsMouseActive()
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_AUDIO_OSD_SETTINGS)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_SUBTITLE_OSD_SETTINGS)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_VIDEO_OSD_SETTINGS)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_CMS_OSD_SETTINGS)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_VIDEO_BOOKMARKS)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_PVR_OSD_CHANNELS)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_PVR_CHANNEL_GUIDE)
+                           || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_OSD_TELETEXT))
+      // extend show time by original value
+      SetAutoClose(m_showDuration);
   }
   CGUIDialog::FrameMove();
 }
 
 bool CGUIDialogVideoOSD::OnAction(const CAction &action)
 {
-  if (action.GetID() == ACTION_NEXT_ITEM || action.GetID() == ACTION_PREV_ITEM)
-  {
-    // these could indicate next chapter if video supports it
-    if (g_application.m_pPlayer != NULL && g_application.m_pPlayer->OnAction(action))
-      return true;
-  }
   if (action.GetID() == ACTION_SHOW_OSD)
   {
     Close();
@@ -92,15 +84,12 @@ bool CGUIDialogVideoOSD::OnMessage(CGUIMessage& message)
   case GUI_MSG_WINDOW_DEINIT:  // fired when OSD is hidden
     {
       // Remove our subdialogs if visible
-      CGUIDialog *pDialog = (CGUIDialog *)g_windowManager.GetWindow(WINDOW_DIALOG_VIDEO_OSD_SETTINGS);
+      CGUIDialog *pDialog = CServiceBroker::GetGUI()->GetWindowManager().GetDialog(WINDOW_DIALOG_AUDIO_OSD_SETTINGS);
       if (pDialog && pDialog->IsDialogRunning())
         pDialog->Close(true);
-      pDialog = (CGUIDialog *)g_windowManager.GetWindow(WINDOW_DIALOG_AUDIO_OSD_SETTINGS);
-      if (pDialog && pDialog->IsDialogRunning()) pDialog->Close(true);
-      pDialog = (CGUIDialog *)g_windowManager.GetWindow(WINDOW_DIALOG_VIDEO_BOOKMARKS);
-      if (pDialog && pDialog->IsDialogRunning()) pDialog->Close(true);
-      pDialog = (CGUIDialog *)g_windowManager.GetWindow(WINDOW_DIALOG_OSD_TELETEXT);
-      if (pDialog && pDialog->IsDialogRunning()) pDialog->Close(true);
+      pDialog = CServiceBroker::GetGUI()->GetWindowManager().GetDialog(WINDOW_DIALOG_SUBTITLE_OSD_SETTINGS);
+      if (pDialog && pDialog->IsDialogRunning())
+        pDialog->Close(true);
     }
     break;
   }

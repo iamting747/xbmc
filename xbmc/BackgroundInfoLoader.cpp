@@ -1,43 +1,25 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "BackgroundInfoLoader.h"
 #include "FileItem.h"
-#include "settings/AdvancedSettings.h"
+#include "threads/Thread.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
+#include "URL.h"
 
-using namespace std;
-
-#define ITEMS_PER_THREAD 5
-
-CBackgroundInfoLoader::CBackgroundInfoLoader(int nThreads)
+CBackgroundInfoLoader::CBackgroundInfoLoader() : m_thread (NULL)
 {
   m_bStop = true;
   m_pObserver=NULL;
   m_pProgressCallback=NULL;
   m_pVecItems = NULL;
-  m_nRequestedThreads = nThreads;
-  m_bStartCalled = false;
-  m_nActiveThreads = 0;
+  m_bIsLoading = false;
 }
 
 CBackgroundInfoLoader::~CBackgroundInfoLoader()
@@ -45,66 +27,61 @@ CBackgroundInfoLoader::~CBackgroundInfoLoader()
   StopThread();
 }
 
-void CBackgroundInfoLoader::SetNumOfWorkers(int nThreads)
-{
-  m_nRequestedThreads = nThreads;
-}
-
 void CBackgroundInfoLoader::Run()
 {
   try
   {
-    if (m_vecItems.size() > 0)
+    if (!m_vecItems.empty())
     {
-      {
-        CSingleLock lock(m_lock);
-        if (!m_bStartCalled)
-        {
-          OnLoaderStart();
-          m_bStartCalled = true;
-        }
-      }
+      OnLoaderStart();
 
-      while (!m_bStop)
+      // Stage 1: All "fast" stuff we have already cached
+      for (std::vector<CFileItemPtr>::const_iterator iter = m_vecItems.begin(); iter != m_vecItems.end(); ++iter)
       {
-        CSingleLock lock(m_lock);
-        CFileItemPtr pItem;
-        vector<CFileItemPtr>::iterator iter = m_vecItems.begin();
-        if (iter != m_vecItems.end())
-        {
-          pItem = *iter;
-          m_vecItems.erase(iter);
-        }
-
-        if (pItem == NULL)
-          break;
+        CFileItemPtr pItem = *iter;
 
         // Ask the callback if we should abort
         if ((m_pProgressCallback && m_pProgressCallback->Abort()) || m_bStop)
           break;
 
-        lock.Leave();
         try
         {
-          if (LoadItem(pItem.get()) && m_pObserver)
+          if (LoadItemCached(pItem.get()) && m_pObserver)
             m_pObserver->OnItemLoaded(pItem.get());
         }
         catch (...)
         {
-          CLog::Log(LOGERROR, "%s::LoadItem - Unhandled exception for item %s", __FUNCTION__, pItem->GetPath().c_str());
+          CLog::Log(LOGERROR, "CBackgroundInfoLoader::LoadItemCached - Unhandled exception for item %s", CURL::GetRedacted(pItem->GetPath()).c_str());
+        }
+      }
+
+      // Stage 2: All "slow" stuff that we need to lookup
+      for (std::vector<CFileItemPtr>::const_iterator iter = m_vecItems.begin(); iter != m_vecItems.end(); ++iter)
+      {
+        CFileItemPtr pItem = *iter;
+
+        // Ask the callback if we should abort
+        if ((m_pProgressCallback && m_pProgressCallback->Abort()) || m_bStop)
+          break;
+
+        try
+        {
+          if (LoadItemLookup(pItem.get()) && m_pObserver)
+            m_pObserver->OnItemLoaded(pItem.get());
+        }
+        catch (...)
+        {
+          CLog::Log(LOGERROR, "CBackgroundInfoLoader::LoadItemLookup - Unhandled exception for item %s", CURL::GetRedacted(pItem->GetPath()).c_str());
         }
       }
     }
 
-    CSingleLock lock(m_lock);
-    if (m_nActiveThreads == 1)
-      OnLoaderFinish();
-    m_nActiveThreads--;
-
+    OnLoaderFinish();
+    m_bIsLoading = false;
   }
   catch (...)
   {
-    m_nActiveThreads--;
+    m_bIsLoading = false;
     CLog::Log(LOGERROR, "%s - Unhandled exception", __FUNCTION__);
   }
 }
@@ -113,7 +90,7 @@ void CBackgroundInfoLoader::Load(CFileItemList& items)
 {
   StopThread();
 
-  if (items.Size() == 0)
+  if (items.IsEmpty())
     return;
 
   CSingleLock lock(m_lock);
@@ -123,26 +100,11 @@ void CBackgroundInfoLoader::Load(CFileItemList& items)
 
   m_pVecItems = &items;
   m_bStop = false;
-  m_bStartCalled = false;
+  m_bIsLoading = true;
 
-  int nThreads = m_nRequestedThreads;
-  if (nThreads == -1)
-    nThreads = (m_vecItems.size() / (ITEMS_PER_THREAD+1)) + 1;
-
-  if (nThreads > g_advancedSettings.m_bgInfoLoaderMaxThreads)
-    nThreads = g_advancedSettings.m_bgInfoLoaderMaxThreads;
-
-  m_nActiveThreads = nThreads;
-  for (int i=0; i < nThreads; i++)
-  {
-    CThread *pThread = new CThread(this, "Background Loader");
-    pThread->Create();
-#ifndef _LINUX
-    pThread->SetPriority(THREAD_PRIORITY_BELOW_NORMAL);
-#endif
-    m_workers.push_back(pThread);
-  }
-
+  m_thread = new CThread(this, "BackgroundLoader");
+  m_thread->Create();
+  m_thread->SetPriority(THREAD_PRIORITY_BELOW_NORMAL);
 }
 
 void CBackgroundInfoLoader::StopAsync()
@@ -155,21 +117,20 @@ void CBackgroundInfoLoader::StopThread()
 {
   StopAsync();
 
-  for (int i=0; i<(int)m_workers.size(); i++)
+  if (m_thread)
   {
-    m_workers[i]->StopThread();
-    delete m_workers[i];
+    m_thread->StopThread();
+    delete m_thread;
+    m_thread = NULL;
   }
-
-  m_workers.clear();
   m_vecItems.clear();
   m_pVecItems = NULL;
-  m_nActiveThreads = 0;
+  m_bIsLoading = false;
 }
 
 bool CBackgroundInfoLoader::IsLoading()
 {
-  return m_nActiveThreads > 0;
+  return m_bIsLoading;
 }
 
 void CBackgroundInfoLoader::SetObserver(IBackgroundLoaderObserver* pObserver)

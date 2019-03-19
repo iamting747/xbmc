@@ -1,35 +1,19 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "PlayListXML.h"
 #include "filesystem/File.h"
 #include "Util.h"
-#include "utils/RegExp.h"
 #include "utils/log.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/XMLUtils.h"
 #include "utils/Variant.h"
-#ifndef _LINUX
-#include "cores/dllloader/exports/emu_msvcrt.h"
-#endif
 
 using namespace PLAYLIST;
 using namespace XFILE;
@@ -67,23 +51,21 @@ using namespace XFILE;
 */
 
 
-CPlayListXML::CPlayListXML(void)
-{}
+CPlayListXML::CPlayListXML(void) = default;
 
-CPlayListXML::~CPlayListXML(void)
-{}
+CPlayListXML::~CPlayListXML(void) = default;
 
 
-static inline CStdString GetString( const TiXmlElement* pRootElement, const char *tagName )
+static inline std::string GetString( const TiXmlElement* pRootElement, const char *tagName )
 {
-  CStdString strValue;
+  std::string strValue;
   if ( XMLUtils::GetString(pRootElement, tagName, strValue) )
     return strValue;
 
   return "";
 }
 
-bool CPlayListXML::Load( const CStdString& strFileName )
+bool CPlayListXML::Load( const std::string& strFileName )
 {
   CXBMCTinyXML xmlDoc;
 
@@ -113,44 +95,44 @@ bool CPlayListXML::Load( const CStdString& strFileName )
   while ( pSet )
   {
     // Get parameters
-    CStdString url = GetString( pSet, "url" );
-    CStdString name = GetString( pSet, "name" );
-    CStdString category = GetString( pSet, "category" );
-    CStdString lang = GetString( pSet, "lang" );
-    CStdString channel = GetString( pSet, "channel" );
-    CStdString lockpass = GetString( pSet, "lockpassword" );
+    std::string url = GetString( pSet, "url" );
+    std::string name = GetString( pSet, "name" );
+    std::string category = GetString( pSet, "category" );
+    std::string lang = GetString( pSet, "lang" );
+    std::string channel = GetString( pSet, "channel" );
+    std::string lockpass = GetString( pSet, "lockpassword" );
 
     // If url is empty, it doesn't make any sense
-    if ( !url.IsEmpty() )
+    if ( !url.empty() )
     {
        // If the name is empty, use url
-       if ( name.IsEmpty() )
+       if ( name.empty() )
          name = url;
 
        // Append language to the name, and also set as metadata
-       if ( !lang.IsEmpty() )
+       if ( !lang.empty() )
          name += " [" + lang + "]";
 
-       CStdString info = name;
+       std::string info = name;
        CFileItemPtr newItem( new CFileItem(info) );
        newItem->SetPath(url);
 
        // Set language as metadata
-       if ( !lang.IsEmpty() )
+       if ( !lang.empty() )
          newItem->SetProperty("language", lang.c_str() );
 
        // Set category as metadata
-       if ( !category.IsEmpty() )
+       if ( !category.empty() )
          newItem->SetProperty("category", category.c_str() );
 
        // Set channel as extra info and as metadata
-       if ( !channel.IsEmpty() )
+       if ( !channel.empty() )
        {
          newItem->SetProperty("remotechannel", channel.c_str() );
          newItem->SetExtraInfo( "Channel: " + channel );
        }
 
-       if ( !lockpass.IsEmpty() )
+       if ( !lockpass.empty() )
        {
          newItem->m_strLockCode = lockpass;
          newItem->m_iHasLock = 2;
@@ -169,42 +151,42 @@ bool CPlayListXML::Load( const CStdString& strFileName )
 }
 
 
-void CPlayListXML::Save(const CStdString& strFileName) const
+void CPlayListXML::Save(const std::string& strFileName) const
 {
   if (!m_vecItems.size()) return ;
-  CStdString strPlaylist = CUtil::MakeLegalPath(strFileName);
+  std::string strPlaylist = CUtil::MakeLegalPath(strFileName);
   CFile file;
   if (!file.OpenForWrite(strPlaylist, true))
   {
     CLog::Log(LOGERROR, "Could not save WPL playlist: [%s]", strPlaylist.c_str());
     return ;
   }
-  CStdString write;
-  write.AppendFormat("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
-  write.AppendFormat("<streams>\n");
+  std::string write;
+  write += StringUtils::Format("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
+  write += StringUtils::Format("<streams>\n");
   for (int i = 0; i < (int)m_vecItems.size(); ++i)
   {
     CFileItemPtr item = m_vecItems[i];
-    write.AppendFormat("  <stream>\n" );
-    write.AppendFormat("    <url>%s</url>", item->GetPath().c_str() );
-    write.AppendFormat("    <name>%s</name>", item->GetLabel().c_str() );
+    write += StringUtils::Format("  <stream>\n" );
+    write += StringUtils::Format("    <url>%s</url>", item->GetPath().c_str() );
+    write += StringUtils::Format("    <name>%s</name>", item->GetLabel().c_str() );
 
     if ( !item->GetProperty("language").empty() )
-      write.AppendFormat("    <lang>%s</lang>", item->GetProperty("language").c_str() );
+      write += StringUtils::Format("    <lang>%s</lang>", item->GetProperty("language").c_str() );
 
     if ( !item->GetProperty("category").empty() )
-      write.AppendFormat("    <category>%s</category>", item->GetProperty("category").c_str() );
+      write += StringUtils::Format("    <category>%s</category>", item->GetProperty("category").c_str() );
 
     if ( !item->GetProperty("remotechannel").empty() )
-      write.AppendFormat("    <channel>%s</channel>", item->GetProperty("remotechannel").c_str() );
+      write += StringUtils::Format("    <channel>%s</channel>", item->GetProperty("remotechannel").c_str() );
 
     if ( item->m_iHasLock > 0 )
-      write.AppendFormat("    <lockpassword>%s<lockpassword>", item->m_strLockCode.c_str() );
+      write += StringUtils::Format("    <lockpassword>%s<lockpassword>", item->m_strLockCode.c_str() );
 
-    write.AppendFormat("  </stream>\n\n" );
+    write += StringUtils::Format("  </stream>\n\n" );
   }
 
-  write.AppendFormat("</streams>\n");
+  write += StringUtils::Format("</streams>\n");
   file.Write(write.c_str(), write.size());
   file.Close();
 }

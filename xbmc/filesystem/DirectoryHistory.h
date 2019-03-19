@@ -1,26 +1,16 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/StdString.h"
+#pragma once
+
+#include <map>
+#include <string>
+#include <vector>
 
 class CDirectoryHistory
 {
@@ -28,26 +18,50 @@ public:
   class CHistoryItem
   {
   public:
-    CHistoryItem(){};
-    virtual ~CHistoryItem(){};
-    CStdString m_strItem;
-    CStdString m_strDirectory;
+    CHistoryItem() = default;
+    virtual ~CHistoryItem() = default;
+    std::string m_strItem;
+    std::string m_strDirectory;
   };
-  CDirectoryHistory();
+
+  class CPathHistoryItem
+  {
+  public:
+    CPathHistoryItem() = default;
+    virtual ~CPathHistoryItem() = default;
+
+    const std::string& GetPath(bool filter = false) const;
+
+    std::string m_strPath;
+    std::string m_strFilterPath;
+  };
+
+  CDirectoryHistory() = default;
   virtual ~CDirectoryHistory();
 
-  void SetSelectedItem(const CStdString& strSelectedItem, const CStdString& strDirectory);
-  const CStdString& GetSelectedItem(const CStdString& strDirectory) const;
-  void RemoveSelectedItem(const CStdString& strDirectory);
+  void SetSelectedItem(const std::string& strSelectedItem, const std::string& strDirectory);
+  const std::string& GetSelectedItem(const std::string& strDirectory) const;
+  void RemoveSelectedItem(const std::string& strDirectory);
 
-  void AddPath(const CStdString& strPath);
-  void AddPathFront(const CStdString& strPath);
-  CStdString GetParentPath();
-  CStdString RemoveParentPath();
+  void AddPath(const std::string& strPath, const std::string &m_strFilterPath = "");
+  void AddPathFront(const std::string& strPath, const std::string &m_strFilterPath = "");
+  std::string GetParentPath(bool filter = false);
+  std::string RemoveParentPath(bool filter = false);
   void ClearPathHistory();
+  void ClearSearchHistory();
   void DumpPathHistory();
+
+  /*! \brief Returns whether a path is in the history.
+   \param path to test
+   \return true if the path is in the history, false otherwise.
+   */
+  bool IsInHistory(const std::string &path) const;
+
 private:
-  std::vector<CHistoryItem> m_vecHistory;
-  std::vector<CStdString> m_vecPathHistory; ///< History of traversed directories
-  CStdString m_strNull;
+  static std::string preparePath(const std::string &strDirectory, bool tolower = true);
+
+  typedef std::map<std::string, CHistoryItem> HistoryMap;
+  HistoryMap m_vecHistory;
+  std::vector<CPathHistoryItem> m_vecPathHistory; ///< History of traversed directories
+  static bool IsMusicSearchUrl(CPathHistoryItem &i);
 };

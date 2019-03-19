@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "SpecialProtocolDirectory.h"
@@ -24,49 +11,33 @@
 #include "Directory.h"
 #include "utils/URIUtils.h"
 #include "FileItem.h"
+#include "URL.h"
 
 using namespace XFILE;
 
-CSpecialProtocolDirectory::CSpecialProtocolDirectory(void)
-{
-}
+CSpecialProtocolDirectory::CSpecialProtocolDirectory(void) = default;
 
-CSpecialProtocolDirectory::~CSpecialProtocolDirectory(void)
-{
-}
+CSpecialProtocolDirectory::~CSpecialProtocolDirectory(void) = default;
 
-bool CSpecialProtocolDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items)
+bool CSpecialProtocolDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
-  CStdString untranslatedPath = strPath;  // Why do I need a copy??? - the GetDirectory() call below will override strPath???
-  CStdString translatedPath = CSpecialProtocol::TranslatePath(strPath);
+  const std::string pathToUrl(url.Get());
+  std::string translatedPath = CSpecialProtocol::TranslatePath(url);
   if (CDirectory::GetDirectory(translatedPath, items, m_strFileMask, m_flags | DIR_FLAG_GET_HIDDEN))
   { // replace our paths as necessary
-    items.SetPath(untranslatedPath);
+    items.SetURL(url);
     for (int i = 0; i < items.Size(); i++)
     {
       CFileItemPtr item = items[i];
-      if (strnicmp(item->GetPath().c_str(), translatedPath.c_str(), translatedPath.GetLength()) == 0)
-        item->SetPath(URIUtils::AddFileToFolder(untranslatedPath, item->GetPath().Mid(translatedPath.GetLength())));
+      if (URIUtils::PathHasParent(item->GetPath(), translatedPath))
+        item->SetPath(URIUtils::AddFileToFolder(pathToUrl, item->GetPath().substr(translatedPath.size())));
     }
     return true;
   }
   return false;
 }
 
-bool CSpecialProtocolDirectory::Create(const char* strPath)
+std::string CSpecialProtocolDirectory::TranslatePath(const CURL &url)
 {
-  CStdString translatedPath = CSpecialProtocol::TranslatePath(strPath);
-  return CDirectory::Create(translatedPath.c_str());
-}
-
-bool CSpecialProtocolDirectory::Remove(const char* strPath)
-{
-  CStdString translatedPath = CSpecialProtocol::TranslatePath(strPath);
-  return CDirectory::Remove(translatedPath.c_str());
-}
-
-bool CSpecialProtocolDirectory::Exists(const char* strPath)
-{
-  CStdString translatedPath = CSpecialProtocol::TranslatePath(strPath);
-  return CDirectory::Exists(translatedPath.c_str());
+  return CSpecialProtocol::TranslatePath(url);
 }

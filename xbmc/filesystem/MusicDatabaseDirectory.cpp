@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "MusicDatabaseDirectory.h"
@@ -26,25 +13,26 @@
 #include "filesystem/File.h"
 #include "FileItem.h"
 #include "utils/Crc32.h"
+#include "ServiceBroker.h"
 #include "guilib/TextureManager.h"
 #include "guilib/LocalizeStrings.h"
-#include "utils/log.h"
+#include "utils/LegacyPathTranslation.h"
+#include "utils/StringUtils.h"
 
-using namespace std;
 using namespace XFILE;
 using namespace MUSICDATABASEDIRECTORY;
 
-CMusicDatabaseDirectory::CMusicDatabaseDirectory(void)
-{
-}
+CMusicDatabaseDirectory::CMusicDatabaseDirectory(void) = default;
 
-CMusicDatabaseDirectory::~CMusicDatabaseDirectory(void)
-{
-}
+CMusicDatabaseDirectory::~CMusicDatabaseDirectory(void) = default;
 
-bool CMusicDatabaseDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items)
+bool CMusicDatabaseDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strPath));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(url);
+  items.SetPath(path);
+  items.m_dwSize = -1;  // No size
+
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
 
   if (!pNode.get())
     return false;
@@ -53,10 +41,10 @@ bool CMusicDatabaseDirectory::GetDirectory(const CStdString& strPath, CFileItemL
   for (int i=0;i<items.Size();++i)
   {
     CFileItemPtr item = items[i];
-    if (item->m_bIsFolder && !item->HasIcon() && !item->HasThumbnail())
+    if (item->m_bIsFolder && !item->HasIcon() && !item->HasArt("thumb"))
     {
-      CStdString strImage = GetIcon(item->GetPath());
-      if (!strImage.IsEmpty() && g_TextureManager.HasTexture(strImage))
+      std::string strImage = GetIcon(item->GetPath());
+      if (!strImage.empty() && CServiceBroker::GetGUI()->GetTextureManager().HasTexture(strImage))
         item->SetIconImage(strImage);
     }
   }
@@ -65,9 +53,10 @@ bool CMusicDatabaseDirectory::GetDirectory(const CStdString& strPath, CFileItemL
   return bResult;
 }
 
-NODE_TYPE CMusicDatabaseDirectory::GetDirectoryChildType(const CStdString& strPath)
+NODE_TYPE CMusicDatabaseDirectory::GetDirectoryChildType(const std::string& strPath)
 {
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strPath));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(strPath);
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
 
   if (!pNode.get())
     return NODE_TYPE_NONE;
@@ -75,9 +64,10 @@ NODE_TYPE CMusicDatabaseDirectory::GetDirectoryChildType(const CStdString& strPa
   return pNode->GetChildType();
 }
 
-NODE_TYPE CMusicDatabaseDirectory::GetDirectoryType(const CStdString& strPath)
+NODE_TYPE CMusicDatabaseDirectory::GetDirectoryType(const std::string& strPath)
 {
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strPath));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(strPath);
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
 
   if (!pNode.get())
     return NODE_TYPE_NONE;
@@ -85,9 +75,10 @@ NODE_TYPE CMusicDatabaseDirectory::GetDirectoryType(const CStdString& strPath)
   return pNode->GetType();
 }
 
-NODE_TYPE CMusicDatabaseDirectory::GetDirectoryParentType(const CStdString& strPath)
+NODE_TYPE CMusicDatabaseDirectory::GetDirectoryParentType(const std::string& strPath)
 {
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strPath));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(strPath);
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
 
   if (!pNode.get())
     return NODE_TYPE_NONE;
@@ -100,50 +91,44 @@ NODE_TYPE CMusicDatabaseDirectory::GetDirectoryParentType(const CStdString& strP
   return pParentNode->GetChildType();
 }
 
-bool CMusicDatabaseDirectory::IsArtistDir(const CStdString& strDirectory)
+bool CMusicDatabaseDirectory::IsArtistDir(const std::string& strDirectory)
 {
   NODE_TYPE node=GetDirectoryType(strDirectory);
   return (node==NODE_TYPE_ARTIST);
 }
 
-bool CMusicDatabaseDirectory::HasAlbumInfo(const CStdString& strDirectory)
+void CMusicDatabaseDirectory::ClearDirectoryCache(const std::string& strDirectory)
 {
-  NODE_TYPE node=GetDirectoryType(strDirectory);
-  return (node!=NODE_TYPE_OVERVIEW && node!=NODE_TYPE_TOP100 &&
-          node!=NODE_TYPE_GENRE && node!=NODE_TYPE_ARTIST && node!=NODE_TYPE_YEAR);
-}
-
-void CMusicDatabaseDirectory::ClearDirectoryCache(const CStdString& strDirectory)
-{
-  CStdString path(strDirectory);
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(strDirectory);
   URIUtils::RemoveSlashAtEnd(path);
 
-  Crc32 crc;
-  crc.ComputeFromLowerCase(path);
+  uint32_t crc = Crc32::ComputeFromLowerCase(path);
 
-  CStdString strFileName;
-  strFileName.Format("special://temp/%08x.fi", (unsigned __int32) crc);
+  std::string strFileName = StringUtils::Format("special://temp/archive_cache/%08x.fi", crc);
   CFile::Delete(strFileName);
 }
 
-bool CMusicDatabaseDirectory::IsAllItem(const CStdString& strDirectory)
+bool CMusicDatabaseDirectory::IsAllItem(const std::string& strDirectory)
 {
-  if (strDirectory.Right(4).Equals("/-1/"))
+  //Last query parameter, ignoring any appended options, is -1
+  CURL url(strDirectory);
+  if (StringUtils::EndsWith(url.GetWithoutOptions(), "/-1/"))
     return true;
   return false;
 }
 
-bool CMusicDatabaseDirectory::GetLabel(const CStdString& strDirectory, CStdString& strLabel)
+bool CMusicDatabaseDirectory::GetLabel(const std::string& strDirectory, std::string& strLabel)
 {
   strLabel = "";
 
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strDirectory));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(strDirectory);
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
   if (!pNode.get())
     return false;
 
   // first see if there's any filter criteria
   CQueryParams params;
-  CDirectoryNode::GetDatabaseInfo(strDirectory, params);
+  CDirectoryNode::GetDatabaseInfo(path, params);
 
   CMusicDatabase musicdatabase;
   if (!musicdatabase.Open())
@@ -156,7 +141,7 @@ bool CMusicDatabaseDirectory::GetLabel(const CStdString& strDirectory, CStdStrin
   // get artist
   if (params.GetArtistId() >= 0)
   {
-    if (!strLabel.IsEmpty())
+    if (!strLabel.empty())
       strLabel += " / ";
     strLabel += musicdatabase.GetArtistById(params.GetArtistId());
   }
@@ -164,12 +149,12 @@ bool CMusicDatabaseDirectory::GetLabel(const CStdString& strDirectory, CStdStrin
   // get album
   if (params.GetAlbumId() >= 0)
   {
-    if (!strLabel.IsEmpty())
+    if (!strLabel.empty())
       strLabel += " / ";
     strLabel += musicdatabase.GetAlbumById(params.GetAlbumId());
   }
 
-  if (strLabel.IsEmpty())
+  if (strLabel.empty())
   {
     switch (pNode->GetChildType())
     {
@@ -178,6 +163,12 @@ bool CMusicDatabaseDirectory::GetLabel(const CStdString& strDirectory, CStdStrin
       break;
     case NODE_TYPE_GENRE:
       strLabel = g_localizeStrings.Get(135); // Genres
+      break;
+    case NODE_TYPE_SOURCE:
+      strLabel = g_localizeStrings.Get(39030); // Sources
+      break;
+    case NODE_TYPE_ROLE:
+      strLabel = g_localizeStrings.Get(38033); // Roles
       break;
     case NODE_TYPE_ARTIST:
       strLabel = g_localizeStrings.Get(133); // Artists
@@ -219,7 +210,6 @@ bool CMusicDatabaseDirectory::GetLabel(const CStdString& strDirectory, CStdStrin
       strLabel = "";
       break;
     default:
-      CLog::Log(LOGWARNING, "%s - Unknown nodetype requested %d", __FUNCTION__, pNode->GetChildType());
       return false;
     }
   }
@@ -227,7 +217,7 @@ bool CMusicDatabaseDirectory::GetLabel(const CStdString& strDirectory, CStdStrin
   return true;
 }
 
-bool CMusicDatabaseDirectory::ContainsSongs(const CStdString &path)
+bool CMusicDatabaseDirectory::ContainsSongs(const std::string &path)
 {
   MUSICDATABASEDIRECTORY::NODE_TYPE type = GetDirectoryChildType(path);
   if (type == MUSICDATABASEDIRECTORY::NODE_TYPE_SONG) return true;
@@ -241,9 +231,10 @@ bool CMusicDatabaseDirectory::ContainsSongs(const CStdString &path)
   return false;
 }
 
-bool CMusicDatabaseDirectory::Exists(const char* strPath)
+bool CMusicDatabaseDirectory::Exists(const CURL& url)
 {
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strPath));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(url);
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
 
   if (!pNode.get())
     return false;
@@ -254,15 +245,16 @@ bool CMusicDatabaseDirectory::Exists(const char* strPath)
   return true;
 }
 
-bool CMusicDatabaseDirectory::CanCache(const CStdString& strPath)
+bool CMusicDatabaseDirectory::CanCache(const std::string& strPath)
 {
-  auto_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(strPath));
+  std::string path = CLegacyPathTranslation::TranslateMusicDbPath(strPath);
+  std::unique_ptr<CDirectoryNode> pNode(CDirectoryNode::ParseURL(path));
   if (!pNode.get())
     return false;
   return pNode->CanCache();
 }
 
-CStdString CMusicDatabaseDirectory::GetIcon(const CStdString &strDirectory)
+std::string CMusicDatabaseDirectory::GetIcon(const std::string &strDirectory)
 {
   switch (GetDirectoryChildType(strDirectory))
   {
@@ -270,6 +262,10 @@ CStdString CMusicDatabaseDirectory::GetIcon(const CStdString &strDirectory)
       return "DefaultMusicArtists.png";
   case NODE_TYPE_GENRE:
       return "DefaultMusicGenres.png";
+  case NODE_TYPE_SOURCE:
+    return "DefaultMusicSources.png";
+  case NODE_TYPE_ROLE:
+    return "DefaultMusicRoles.png";
   case NODE_TYPE_TOP100:
       return "DefaultMusicTop100.png";
   case NODE_TYPE_ALBUM:
@@ -296,10 +292,8 @@ CStdString CMusicDatabaseDirectory::GetIcon(const CStdString &strDirectory)
   case NODE_TYPE_ALBUM_COMPILATIONS:
     return "DefaultMusicCompilations.png";
   default:
-    CLog::Log(LOGWARNING, "%s - Unknown nodetype requested %s", __FUNCTION__, strDirectory.c_str());
     break;
   }
 
   return "";
 }
-

@@ -1,29 +1,19 @@
-#pragma once
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include <stdint.h>
 #include <list>
 #include "AEPackIEC61937.h"
-#include "AEStreamInfo.h"
+#include "AEChannelInfo.h"
+
+class CAEStreamInfo;
 
 class CAEBitstreamPacker
 {
@@ -31,22 +21,33 @@ public:
   CAEBitstreamPacker();
   ~CAEBitstreamPacker();
 
-  void         Pack(CAEStreamInfo &info, uint8_t* data, int size);
-  uint8_t*     GetBuffer();
-  unsigned int GetSize  ();
+  void Pack(CAEStreamInfo &info, uint8_t* data, int size);
+  bool PackPause(CAEStreamInfo &info, unsigned int millis, bool iecBursts);
+  void Reset();
+  uint8_t* GetBuffer();
+  unsigned int GetSize() const;
+  static unsigned int GetOutputRate(CAEStreamInfo &info);
+  static CAEChannelInfo GetOutputChannelMap(CAEStreamInfo &info);
 
 private:
   void PackTrueHD(CAEStreamInfo &info, uint8_t* data, int size);
-  void PackDTSHD (CAEStreamInfo &info, uint8_t* data, int size);
+  void PackDTSHD(CAEStreamInfo &info, uint8_t* data, int size);
+  void PackEAC3(CAEStreamInfo &info, uint8_t* data, int size);
 
-  /* we keep the trueHD and dtsHD buffers seperate so that we can handle a fast stream switch */
+  /* we keep the trueHD and dtsHD buffers separate so that we can handle a fast stream switch */
   uint8_t      *m_trueHD;
-  unsigned int  m_trueHDPos;
+  unsigned int  m_trueHDPos = 0;
 
   uint8_t      *m_dtsHD;
-  unsigned int  m_dtsHDSize;
+  unsigned int  m_dtsHDSize = 0;
 
-  unsigned int  m_dataSize;
+  uint8_t      *m_eac3;
+  unsigned int  m_eac3Size = 0;
+  unsigned int  m_eac3FramesCount = 0;
+  unsigned int  m_eac3FramesPerBurst = 0;
+
+  unsigned int  m_dataSize = 0;
   uint8_t       m_packedBuffer[MAX_IEC61937_PACKET];
+  unsigned int m_pauseDuration = 0;
 };
 

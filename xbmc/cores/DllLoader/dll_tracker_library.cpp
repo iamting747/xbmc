@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "dll_tracker_library.h"
@@ -60,7 +47,7 @@ extern "C" void tracker_library_free_all(DllTrackInfo* pInfo)
   if (!pInfo->dllList.empty())
   {
     CSingleLock lock(g_trackerLock);
-    CLog::Log(LOGDEBUG,"%s: Detected %"PRIdS" unloaded dll's", pInfo->pDll->GetFileName(), pInfo->dllList.size());
+    CLog::Log(LOGDEBUG,"{0}: Detected {1} unloaded dll's", pInfo->pDll->GetFileName(), pInfo->dllList.size());
     for (DllListIter it = pInfo->dllList.begin(); it != pInfo->dllList.end(); ++it)
     {
       LibraryLoader* pDll = DllLoaderContainer::GetModule((HMODULE)*it);
@@ -94,12 +81,12 @@ extern "C" void tracker_library_free_all(DllTrackInfo* pInfo)
   }
 }
 
-extern "C" HMODULE __stdcall track_LoadLibraryA(LPCSTR file)
+extern "C" HMODULE __stdcall track_LoadLibraryA(const char* file)
 {
   uintptr_t loc = (uintptr_t)_ReturnAddress();
 
   DllTrackInfo* pInfo = tracker_get_dlltrackinfo(loc);
-  char* path = NULL;
+  const char* path = NULL;
   if (pInfo) path = pInfo->pDll->GetFileName();
 
   HMODULE hHandle = dllLoadLibraryExtended(file, path);
@@ -108,12 +95,12 @@ extern "C" HMODULE __stdcall track_LoadLibraryA(LPCSTR file)
   return hHandle;
 }
 
-extern "C" HMODULE __stdcall track_LoadLibraryExA(LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
+extern "C" HMODULE __stdcall track_LoadLibraryExA(const char* lpLibFileName, HANDLE hFile, DWORD dwFlags)
 {
   uintptr_t loc = (uintptr_t)_ReturnAddress();
 
   DllTrackInfo* pInfo = tracker_get_dlltrackinfo(loc);
-  char* path = NULL;
+  const char* path = NULL;
   if (pInfo) path = pInfo->pDll->GetFileName();
 
   HMODULE hHandle = dllLoadLibraryExExtended(lpLibFileName, hFile, dwFlags, path);
@@ -122,7 +109,7 @@ extern "C" HMODULE __stdcall track_LoadLibraryExA(LPCSTR lpLibFileName, HANDLE h
   return hHandle;
 }
 
-extern "C" BOOL __stdcall track_FreeLibrary(HINSTANCE hLibModule)
+extern "C" int __stdcall track_FreeLibrary(HINSTANCE hLibModule)
 {
   uintptr_t loc = (uintptr_t)_ReturnAddress();
 
@@ -130,5 +117,3 @@ extern "C" BOOL __stdcall track_FreeLibrary(HINSTANCE hLibModule)
 
   return dllFreeLibrary(hLibModule);
 }
-
-

@@ -1,101 +1,98 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIWindowHome.h"
-#include "guilib/Key.h"
+#include "input/Key.h"
+#include "guilib/WindowIDs.h"
 #include "utils/JobManager.h"
 #include "utils/RecentlyAddedJob.h"
 #include "interfaces/AnnouncementManager.h"
 #include "utils/log.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/Variant.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "Application.h"
+#include "ServiceBroker.h"
+#include "utils/StringUtils.h"
 
-using namespace ANNOUNCEMENT;
-
-CGUIWindowHome::CGUIWindowHome(void) : CGUIWindow(WINDOW_HOME, "Home.xml"), 
-                                       m_recentlyAddedRunning(false),
-                                       m_cumulativeUpdateFlag(0)
+CGUIWindowHome::CGUIWindowHome(void) : CGUIWindow(WINDOW_HOME, "Home.xml")
 {
   m_updateRA = (Audio | Video | Totals);
-  
-  CAnnouncementManager::AddAnnouncer(this);
+  m_loadType = KEEP_IN_MEMORY;
+
+  CServiceBroker::GetAnnouncementManager()->AddAnnouncer(this);
 }
 
 CGUIWindowHome::~CGUIWindowHome(void)
 {
-  CAnnouncementManager::RemoveAnnouncer(this);
+  CServiceBroker::GetAnnouncementManager()->RemoveAnnouncer(this);
+}
+
+bool CGUIWindowHome::OnAction(const CAction &action)
+{
+  static unsigned int min_hold_time = 1000;
+  if (action.GetID() == ACTION_NAV_BACK &&
+      action.GetHoldTime() < min_hold_time &&
+      g_application.GetAppPlayer().IsPlaying())
+  {
+    g_application.SwitchToFullScreen();
+    return true;
+  }
+  return CGUIWindow::OnAction(action);
 }
 
 void CGUIWindowHome::OnInitWindow()
-{  
+{
   // for shared databases (ie mysql) always force an update on return to home
   // this is a temporary solution until remote announcements can be delivered
-  if ( g_advancedSettings.m_databaseVideo.type.Equals("mysql") ||
-       g_advancedSettings.m_databaseMusic.type.Equals("mysql") )
+  if (StringUtils::EqualsNoCase(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_databaseVideo.type, "mysql") ||
+      StringUtils::EqualsNoCase(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_databaseMusic.type, "mysql") )
     m_updateRA = (Audio | Video | Totals);
   AddRecentlyAddedJobs( m_updateRA );
 
   CGUIWindow::OnInitWindow();
 }
 
-void CGUIWindowHome::Announce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+void CGUIWindowHome::Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
 {
   int ra_flag = 0;
 
   CLog::Log(LOGDEBUG, "GOT ANNOUNCEMENT, type: %i, from %s, message %s",(int)flag, sender, message);
 
-  if (flag & VideoLibrary)
+  // we are only interested in library changes
+  if ((flag & (ANNOUNCEMENT::VideoLibrary | ANNOUNCEMENT::AudioLibrary)) == 0)
+    return;
+
+  if (data.isMember("transaction") && data["transaction"].asBoolean())
+    return;
+
+  if (strcmp(message, "OnScanStarted") == 0 ||
+      strcmp(message, "OnCleanStarted") == 0)
+    return;
+
+  bool onUpdate = strcmp(message, "OnUpdate") == 0;
+  // always update Totals except on an OnUpdate with no playcount update
+  if (!onUpdate || data.isMember("playcount"))
+    ra_flag |= Totals;
+
+  // always update the full list except on an OnUpdate
+  if (!onUpdate)
   {
-    if ((strcmp(message, "OnUpdate") == 0) ||
-        (strcmp(message, "OnRemove") == 0))
-    {
-      if (data.isMember("playcount"))
-        ra_flag |= Totals;
-    }
-    else if (strcmp(message, "OnScanFinished") == 0)
-    {
-      ra_flag |= (Video | Totals);
-    }
-  }
-  else if (flag & AudioLibrary)
-  {
-    if ((strcmp(message, "OnUpdate") == 0) ||
-        (strcmp(message, "OnRemove") == 0))
-    {
-      if (data.isMember("playcount"))
-        ra_flag |= Totals;
-    }
-    else if (strcmp(message, "OnScanFinished") == 0)
-    {
-      ra_flag |= ( Audio | Totals );
-    }
+    if (flag & ANNOUNCEMENT::VideoLibrary)
+      ra_flag |= Video;
+    else if (flag & ANNOUNCEMENT::AudioLibrary)
+      ra_flag |= Audio;
   }
 
-  // add the job immediatedly if the home window is active
-  // otherwise defer it to the next initialisation
-
-  if (IsActive())
-    AddRecentlyAddedJobs(ra_flag);
-  else
-    m_updateRA |= ra_flag;
+  CGUIMessage reload(GUI_MSG_NOTIFY_ALL, GetID(), 0, GUI_MSG_REFRESH_THUMBS, ra_flag);
+  CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(reload, GetID());
 }
 
 void CGUIWindowHome::AddRecentlyAddedJobs(int flag)
@@ -155,11 +152,12 @@ bool CGUIWindowHome::OnMessage(CGUIMessage& message)
   case GUI_MSG_NOTIFY_ALL:
     if (message.GetParam1() == GUI_MSG_WINDOW_RESET || message.GetParam1() == GUI_MSG_REFRESH_THUMBS)
     {
+      int updateRA = (message.GetSenderId() == GetID()) ? message.GetParam2() : (Video | Audio | Totals);
+
       if (IsActive())
-        AddRecentlyAddedJobs(Video | Audio | Totals);
+        AddRecentlyAddedJobs(updateRA);
       else
-        m_updateRA |= (Video | Audio | Totals);
-      return true;
+        m_updateRA |= updateRA;
     }
     break;
 

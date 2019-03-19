@@ -1,27 +1,14 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIFixedListContainer.h"
-#include "GUIListItem.h"
-#include "Key.h"
+#include "GUIListItemLayout.h"
+#include "input/Key.h"
 
 CGUIFixedListContainer::CGUIFixedListContainer(int parentID, int controlID, float posX, float posY, float width, float height, ORIENTATION orientation, const CScroller& scroller, int preloadItems, int fixedPosition, int cursorRange)
     : CGUIBaseContainer(parentID, controlID, posX, posY, width, height, orientation, scroller, preloadItems)
@@ -33,9 +20,7 @@ CGUIFixedListContainer::CGUIFixedListContainer(int parentID, int controlID, floa
   SetCursor(m_fixedCursor);
 }
 
-CGUIFixedListContainer::~CGUIFixedListContainer(void)
-{
-}
+CGUIFixedListContainer::~CGUIFixedListContainer(void) = default;
 
 bool CGUIFixedListContainer::OnAction(const CAction &action)
 {
@@ -204,6 +189,8 @@ bool CGUIFixedListContainer::SelectItemFromPoint(const CPoint &point)
   if (!m_focusedLayout || !m_layout)
     return false;
 
+  MarkDirtyRegion();
+
   const float mouse_scroll_speed = 0.25f;
   const float mouse_max_amount = 1.5f;
   float sizeOfItem = m_layout->Size(m_orientation);
@@ -249,7 +236,6 @@ bool CGUIFixedListContainer::SelectItemFromPoint(const CPoint &point)
     SetCursor(cursor);
     return true;
   }
-  return InsideLayout(m_focusedLayout, point);
 }
 
 void CGUIFixedListContainer::SelectItem(int item)
@@ -275,6 +261,7 @@ void CGUIFixedListContainer::SelectItem(int item)
       SetContainerMoving(cursor - GetCursor());
     SetCursor(cursor);
     ScrollToOffset(item - GetCursor());
+    MarkDirtyRegion();
   }
 }
 
@@ -285,7 +272,7 @@ bool CGUIFixedListContainer::HasPreviousPage() const
 
 bool CGUIFixedListContainer::HasNextPage() const
 {
-  return (GetOffset() != (int)m_items.size() - m_itemsPerPage && (int)m_items.size() >= m_itemsPerPage);
+  return (GetOffset() < (int)m_items.size() - m_itemsPerPage && (int)m_items.size() >= m_itemsPerPage);
 }
 
 int CGUIFixedListContainer::GetCurrentPage() const

@@ -1,64 +1,77 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "dbwrappers/Database.h"
+#pragma once
+
+#include <string>
+#include <vector>
+
 #include "addons/Addon.h"
-#include "utils/StdString.h"
+#include "dbwrappers/Database.h"
 #include "FileItem.h"
+#include "AddonBuilder.h"
 
 class CAddonDatabase : public CDatabase
 {
 public:
   CAddonDatabase();
-  virtual ~CAddonDatabase();
-  virtual bool Open();
+  ~CAddonDatabase() override;
+  bool Open() override;
 
-  int AddAddon(const ADDON::AddonPtr& item, int idRepo);
-  bool GetAddon(const CStdString& addonID, ADDON::AddonPtr& addon);
-  bool GetAddons(ADDON::VECADDONS& addons);
-  bool GetAddon(int id, ADDON::AddonPtr& addon);
+  /*! @deprecated: use CAddonMgr::FindInstallableById */
+  bool GetAddon(const std::string& addonID, ADDON::AddonPtr& addon);
 
-  /*! \brief Grab the repository from which a given addon came
-   \param addonID - the id of the addon in question
-   \param repo [out] - the id of the repository
-   \return true if a repo was found, false otherwise.
+  /*! \brief Get an addon with a specific version and repository. */
+  bool GetAddon(const std::string& addonID, const ADDON::AddonVersion& version, const std::string& repoId, ADDON::AddonPtr& addon);
+
+  /*! Get the addon IDs that has been set to disabled */
+  bool GetDisabled(std::set<std::string>& addons);
+
+  /*! @deprecated: use FindByAddonId */
+  bool GetAvailableVersions(const std::string& addonId,
+      std::vector<std::pair<ADDON::AddonVersion, std::string>>& versionsInfo);
+
+  /*! @deprecated use CAddonMgr::FindInstallableById */
+  std::pair<ADDON::AddonVersion, std::string> GetAddonVersion(const std::string &id);
+
+  /*! Returns all addons in the repositories with id `addonId`. */
+  bool FindByAddonId(const std::string& addonId, ADDON::VECADDONS& addons);
+
+  bool UpdateRepositoryContent(const std::string& repositoryId, const ADDON::AddonVersion& version,
+      const std::string& checksum, const std::vector<ADDON::AddonPtr>& addons);
+
+  int GetRepoChecksum(const std::string& id, std::string& checksum);
+
+  /*!
+   \brief Get addons in repository `id`
+   \param id id of the repository
+   \returns true on success, false on error or if repository have never been synced.
    */
-  bool GetRepoForAddon(const CStdString& addonID, CStdString& repo);
-  int AddRepository(const CStdString& id, const ADDON::VECADDONS& addons, const CStdString& checksum);
-  void DeleteRepository(const CStdString& id);
-  void DeleteRepository(int id);
-  int GetRepoChecksum(const CStdString& id, CStdString& checksum);
-  bool GetRepository(const CStdString& id, ADDON::VECADDONS& addons);
-  bool GetRepository(int id, ADDON::VECADDONS& addons);
-  bool SetRepoTimestamp(const CStdString& id, const CStdString& timestamp);
+  bool GetRepositoryContent(const std::string& id, ADDON::VECADDONS& addons);
 
-  /*! \brief Retrieve the time a repository was last checked
+  /*! Get addons across all repositories */
+  bool GetRepositoryContent(ADDON::VECADDONS& addons);
+
+  /*!
+   \brief Set repo last checked date, and create the repo if needed
+   \param id id of the repository
+   \returns id of the repository, or -1 on error.
+   */
+  int SetLastChecked(const std::string& id, const ADDON::AddonVersion& version, const std::string& timestamp);
+
+  /*!
+   \brief Retrieve the time a repository was last checked and the version it was for
    \param id id of the repo
-   \return last time the repo was checked, current time if not available
-   \sa SetRepoTimestamp */
-  CDateTime GetRepoTimestamp(const CStdString& id);
+   \return last time the repo was checked, or invalid CDateTime if never checked
+   */
+  std::pair<CDateTime, ADDON::AddonVersion> LastChecked(const std::string& id);
 
-  bool Search(const CStdString& search, ADDON::VECADDONS& items);
-  static void SetPropertiesFromAddon(const ADDON::AddonPtr& addon, CFileItemPtr& item); 
+  bool Search(const std::string& search, ADDON::VECADDONS& items);
 
   /*! \brief Disable an addon.
    Sets a flag that this addon has been disabled.  If disabled, it is usually still available on disk.
@@ -66,18 +79,7 @@ public:
    \param disable whether to enable or disable.  Defaults to true (disable)
    \return true on success, false on failure
    \sa IsAddonDisabled, HasDisabledAddons */
-  bool DisableAddon(const CStdString &addonID, bool disable = true);
-
-  /*! \brief Check whether an addon has been disabled via DisableAddon.
-   \param addonID id of the addon to check
-   \return true if the addon is disabled, false otherwise
-   \sa DisableAddon, HasDisabledAddons */
-  bool IsAddonDisabled(const CStdString &addonID);
-
-  /*! \brief Check whether we have disabled addons.
-   \return true if we have disabled addons, false otherwise
-   \sa DisableAddon, IsAddonDisabled */
-  bool HasDisabledAddons();
+  bool DisableAddon(const std::string &addonID, bool disable = true);
 
   /*! \brief Mark an addon as broken
    Sets a flag that this addon has been marked as broken in the repository.
@@ -85,23 +87,67 @@ public:
    \param reason why it is broken - if non empty we take it as broken.  Defaults to empty
    \return true on success, false on failure
    \sa IsAddonBroken */
-  bool BreakAddon(const CStdString &addonID, const CStdString& reason="");
+  bool BreakAddon(const std::string &addonID, const std::string& reason="");
 
   /*! \brief Check whether an addon has been marked as broken via BreakAddon.
    \param addonID id of the addon to check
-   \return reason if the addon is broken, blank otherwise
    \sa BreakAddon */
-  CStdString IsAddonBroken(const CStdString &addonID);
+  bool IsAddonBroken(const std::string &addonID);
 
-  bool BlacklistAddon(const CStdString& addonID, const CStdString& version);
-  bool IsAddonBlacklisted(const CStdString& addonID, const CStdString& version);
-  bool RemoveAddonFromBlacklist(const CStdString& addonID,
-                                const CStdString& version);
+  bool BlacklistAddon(const std::string& addonID);
+  bool RemoveAddonFromBlacklist(const std::string& addonID);
+  bool GetBlacklisted(std::set<std::string>& addons);
+
+  /*! \brief Store an addon's package filename and that file's hash for future verification
+      \param  addonID         id of the addon we're adding a package for
+      \param  packageFileName filename of the package
+      \param  hash            MD5 checksum of the package
+      \return Whether or not the info successfully made it into the DB.
+      \sa GetPackageHash, RemovePackage
+  */
+  bool AddPackage(const std::string& addonID,
+                  const std::string& packageFileName,
+                  const std::string& hash);
+  /*! \brief Query the MD5 checksum of the given given addon's given package
+      \param  addonID         id of the addon we're who's package we're querying
+      \param  packageFileName filename of the package
+      \param  hash            return the MD5 checksum of the package
+      \return Whether or not we found a hash for the given addon's given package
+      \sa AddPackage, RemovePackage
+  */
+  bool GetPackageHash(const std::string& addonID,
+                      const std::string& packageFileName,
+                      std::string&       hash);
+  /*! \brief Remove a package's info from the database
+      \param  packageFileName filename of the package
+      \return Whether or not we succeeded in removing the package
+      \sa AddPackage, GetPackageHash
+  */
+  bool RemovePackage(const std::string& packageFileName);
+
+  /*! Clear internal fields that shouldn't be kept around indefinitely */
+  void OnPostUnInstall(const std::string& addonId);
+
+  void SyncInstalled(const std::set<std::string>& ids,
+                     const std::set<std::string>& system,
+                     const std::set<std::string>& optional);
+
+  void GetInstalled(std::vector<ADDON::CAddonBuilder>& addons);
+
+  bool SetLastUpdated(const std::string& addonId, const CDateTime& dateTime);
+  bool SetOrigin(const std::string& addonId, const std::string& origin);
+  bool SetLastUsed(const std::string& addonId, const CDateTime& dateTime);
+
 
 protected:
-  virtual bool CreateTables();
-  virtual bool UpdateOldVersion(int version);
-  virtual int GetMinVersion() const { return 15; }
-  const char *GetBaseDBName() const { return "Addons"; }
+  void CreateTables() override;
+  void CreateAnalytics() override;
+  void UpdateTables(int version) override;
+  int GetMinSchemaVersion() const override;
+  int GetSchemaVersion() const override;
+  const char *GetBaseDBName() const override { return "Addons"; }
+
+  bool GetAddon(int id, ADDON::AddonPtr& addon);
+  void DeleteRepository(const std::string& id);
 };
 

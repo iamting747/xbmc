@@ -1,41 +1,27 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "GUIListGroup.h"
 #include "GUITexture.h"
-#include "GUIInfoTypes.h"
+#include "guilib/guiinfo/GUIInfoLabel.h"
 
 class CGUIListItem;
 class CFileItem;
 class CLabelInfo;
 
-class CGUIListItemLayout
+class CGUIListItemLayout final
 {
 public:
   CGUIListItemLayout();
-  CGUIListItemLayout(const CGUIListItemLayout &from);
-  virtual ~CGUIListItemLayout();
-  void LoadLayout(TiXmlElement *layout, int context, bool focused);
+  CGUIListItemLayout(const CGUIListItemLayout &from, CGUIControl *control);
+  void LoadLayout(TiXmlElement *layout, int context, bool focused, float maxWidth, float maxHeight);
   void Process(CGUIListItem *item, int parentID, unsigned int currentTime, CDirtyRegionList &dirtyregions);
   void Render(CGUIListItem *item, int parentID);
   float Size(ORIENTATION orientation) const;
@@ -45,17 +31,20 @@ public:
   void ResetAnimation(ANIMATION_TYPE animType);
   void SetInvalid() { m_invalidated = true; };
   void FreeResources(bool immediately = false);
+  void SetParentControl(CGUIControl *control) { m_group.SetParentControl(control); };
 
-//#ifdef PRE_SKIN_VERSION_9_10_COMPATIBILITY
-  void CreateListControlLayouts(float width, float height, bool focused, const CLabelInfo &labelInfo, const CLabelInfo &labelInfo2, const CTextureInfo &texture, const CTextureInfo &textureFocus, float texHeight, float iconWidth, float iconHeight, const CStdString &nofocusCondition, const CStdString &focusCondition);
+//#ifdef GUILIB_PYTHON_COMPATIBILITY
+  void CreateListControlLayouts(float width, float height, bool focused, const CLabelInfo &labelInfo, const CLabelInfo &labelInfo2, const CTextureInfo &texture, const CTextureInfo &textureFocus, float texHeight, float iconWidth, float iconHeight, const std::string &nofocusCondition, const std::string &focusCondition);
 //#endif
 
+  void SetWidth(float width);
+  void SetHeight(float height);
   void SelectItemFromPoint(const CPoint &point);
   bool MoveLeft();
   bool MoveRight();
 
 #ifdef _DEBUG
-  virtual void DumpTextureUse();
+  void DumpTextureUse();
 #endif
   bool CheckCondition();
 protected:
@@ -69,7 +58,7 @@ protected:
   bool m_focused;
   bool m_invalidated;
 
-  unsigned int m_condition;
-  CGUIInfoBool m_isPlaying;
+  INFO::InfoPtr m_condition;
+  KODI::GUILIB::GUIINFO::CGUIInfoBool m_isPlaying;
 };
 

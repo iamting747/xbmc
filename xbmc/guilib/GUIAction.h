@@ -1,29 +1,19 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <string>
 #include <vector>
-#include "utils/StdString.h"
+#include <memory>
 
 class CGUIControl;
+class CGUIListItem; typedef std::shared_ptr<CGUIListItem> CGUIListItemPtr;
 
 /**
  * Class containing vector of condition->(action/navigation route) pairs and handling its execution.
@@ -31,13 +21,13 @@ class CGUIControl;
 class CGUIAction
 {
 public:
-  CGUIAction();
-  CGUIAction(int controlID);
+  CGUIAction() = default;
+  explicit CGUIAction(int controlID);
 
   /**
-   * Execute actions, if action is paired with condition - evaluate condition first
+   * Execute actions (no navigation paths), if action is paired with condition - evaluate condition first
    */
-  bool Execute(int controlID, int parentID, int direction = 0) const;
+  bool ExecuteActions(int controlID, int parentID, const CGUIListItemPtr &item = NULL) const;
   /**
    * Check if there is any action that meet its condition
    */
@@ -54,18 +44,15 @@ public:
    * Set navigation route
    */
   void SetNavigation(int id);
-
-  // GetFirstAction is only needed in deprecated http api
-  CStdString GetFirstAction() const { return m_actions.size() > 0 ? m_actions[0].action : ""; };
 private:
   struct cond_action_pair
   {
-    CStdString condition;
-    CStdString action;
+    std::string condition;
+    std::string action;
   };
 
   std::vector<cond_action_pair> m_actions;
-  bool m_sendThreadMessages;
+  bool m_sendThreadMessages = false;
 
   typedef std::vector<cond_action_pair>::const_iterator ciActions;
   typedef std::vector<cond_action_pair>::iterator iActions;

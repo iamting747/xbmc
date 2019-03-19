@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2008-2009 Team XBMC http://www.xbmc.org
+ *  Copyright (C) 2008-2013 Team XBMC
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,13 +19,13 @@
 package org.xbmc.eventclient;
 /**
  * XBMC Event Client Class
- * 
+ *
  * A LOG packet tells XBMC to log the message to xbmc.log with the loglevel as specified.
  * @author Stefan Agner
  *
  */
 public class PacketLOG extends Packet {
-	
+
 	/**
 	 * A LOG packet tells XBMC to log the message to xbmc.log with the loglevel as specified.
 	 * @param loglevel the loglevel, follows XBMC standard.

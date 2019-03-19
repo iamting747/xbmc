@@ -1,33 +1,18 @@
 /*
-* XBMC
-* Socket classes
-* Copyright (c) 2008 d4rk
-*
-* This program is free software; you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation; either version 2 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-*/
-
-#include "system.h"
-
-#ifdef HAS_EVENT_SERVER
+ * Socket classes
+ *  Copyright (c) 2008 d4rk
+ *  Copyright (C) 2008-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
 
 #include "Socket.h"
 #include "utils/log.h"
 #include <vector>
 
 using namespace SOCKETS;
-//using namespace std; On VS2010, bind conflicts with std::bind
 
 #ifdef WINSOCK_VERSION
 #define close closesocket
@@ -37,21 +22,67 @@ using namespace SOCKETS;
 /* CPosixUDPSocket                                                    */
 /**********************************************************************/
 
-bool CPosixUDPSocket::Bind(CAddress& addr, int port, int range)
+bool CPosixUDPSocket::Bind(bool localOnly, int port, int range)
 {
   // close any existing sockets
   Close();
 
-  // create the socket
-  m_iSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  // If we can, create a socket that works with IPv6 and IPv4.
+  // If not, try an IPv4-only socket (we don't want to end up
+  // with an IPv6-only socket).
+  if (!localOnly) // Only bind loopback to ipv4. TODO : Implement dual bindinds.
+  {
+    m_iSock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+    if (m_iSock != INVALID_SOCKET)
+    {
+#ifdef WINSOCK_VERSION
+      const char zero = 0;
+#else
+      int zero = 0;
+#endif
+      if (setsockopt(m_iSock, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof(&zero)) == -1)
+      {
+        close(m_iSock);
+        m_iSock = INVALID_SOCKET;
+      }
+      else
+      {
+        m_addr = CAddress("::");
+
+        SOCKET testSocket = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+        setsockopt(testSocket, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof(&zero));
+        // Try to bind a socket to validate ipv6 status
+        for (m_iPort = port; m_iPort <= port + range; ++m_iPort)
+        {
+          m_addr.saddr.saddr6.sin6_port = htons(m_iPort);
+          if (bind(testSocket, (struct sockaddr*)&m_addr.saddr, m_addr.size) >= 0)
+          {
+            m_ipv6Socket = true;
+            break;
+          }
+        }
+        if (!m_ipv6Socket)
+        {
+          CLog::Log(LOGWARNING, "UDP: Unable to bind to advertised ipv6, fallback to ipv4");
+          close(m_iSock);
+          m_iSock = INVALID_SOCKET;
+        }
+
+        closesocket(testSocket);
+      }
+    }
+  }
+
+  if (m_iSock == INVALID_SOCKET)
+    m_iSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
   if (m_iSock == INVALID_SOCKET)
   {
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
     int ierr = WSAGetLastError();
     CLog::Log(LOGERROR, "UDP: Could not create socket %d", ierr);
     // hack for broken third party libs
-    if(ierr == WSANOTINITIALISED)
+    if (ierr == WSANOTINITIALISED)
     {
       WSADATA wd;
       if (WSAStartup(MAKEWORD(2,2), &wd) != 0)
@@ -59,7 +90,7 @@ bool CPosixUDPSocket::Bind(CAddress& addr, int port, int range)
     }
 #else
     CLog::Log(LOGERROR, "UDP: Could not create socket");
-#endif    
+#endif
     CLog::Log(LOGERROR, "UDP: %s", strerror(errno));
     return false;
   }
@@ -76,24 +107,38 @@ bool CPosixUDPSocket::Bind(CAddress& addr, int port, int range)
     CLog::Log(LOGWARNING, "UDP: %s", strerror(errno));
   }
 
-  // set the port
-  m_addr = addr;
-  m_iPort = port;
-  m_addr.saddr.sin_port = htons(port);
+  // bind to any address or localhost
+  if (m_ipv6Socket)
+  {
+    if (localOnly)
+      m_addr = CAddress("::1");
+    else
+      m_addr = CAddress("::");
+  }
+  else
+  {
+    if (localOnly)
+      m_addr = CAddress("127.0.0.1");
+    else
+      m_addr = CAddress("0.0.0.0");
+  }
 
   // bind the socket ( try from port to port+range )
-  while (m_iPort <= port + range)
+  for (m_iPort = port; m_iPort <= port + range; ++m_iPort)
   {
-    if (bind(m_iSock, (struct sockaddr*)&m_addr.saddr, sizeof(m_addr.saddr)) != 0)
+    if (m_ipv6Socket)
+      m_addr.saddr.saddr6.sin6_port = htons(m_iPort);
+    else
+      m_addr.saddr.saddr4.sin_port = htons(m_iPort);
+
+    if (bind(m_iSock, (struct sockaddr*)&m_addr.saddr, m_addr.size) != 0)
     {
-      CLog::Log(LOGWARNING, "UDP: Error binding socket on port %d", m_iPort);
+      CLog::Log(LOGWARNING, "UDP: Error binding socket on port %d (ipv6 : %s)", m_iPort, m_ipv6Socket ? "true" : "false" );
       CLog::Log(LOGWARNING, "UDP: %s", strerror(errno));
-      m_iPort++;
-      m_addr.saddr.sin_port = htons(m_iPort);
     }
     else
     {
-      CLog::Log(LOGNOTICE, "UDP: Listening on port %d", m_iPort);
+      CLog::Log(LOGNOTICE, "UDP: Listening on port %d (ipv6 : %s)", m_iPort, m_ipv6Socket ? "true" : "false");
       SetBound();
       SetReady();
       break;
@@ -124,6 +169,8 @@ void CPosixUDPSocket::Close()
 
 int CPosixUDPSocket::Read(CAddress& addr, const int buffersize, void *buffer)
 {
+  if (m_ipv6Socket)
+    addr.SetAddress("::");
   return (int)recvfrom(m_iSock, (char*)buffer, (size_t)buffersize, 0,
                        (struct sockaddr*)&addr.saddr, &addr.size);
 }
@@ -132,8 +179,7 @@ int CPosixUDPSocket::SendTo(const CAddress& addr, const int buffersize,
                           const void *buffer)
 {
   return (int)sendto(m_iSock, (const char *)buffer, (size_t)buffersize, 0,
-                     (const struct sockaddr*)&addr.saddr,
-                     sizeof(addr.saddr));
+                     (const struct sockaddr*)&addr.saddr, addr.size);
 }
 
 /**********************************************************************/
@@ -247,5 +293,3 @@ CBaseSocket* CSocketListener::GetNextReadySocket()
   }
   return NULL;
 }
-
-#endif // HAS_EVENT_SERVER

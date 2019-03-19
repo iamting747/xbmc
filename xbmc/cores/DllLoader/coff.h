@@ -1,29 +1,12 @@
-#ifndef __COFF_H_
-#define __COFF_H_
-#pragma once
-
-#include "system.h"
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 //#pragma message("including coff.h")
 //
@@ -165,7 +148,7 @@ WindowsHeader_t;
 
 typedef struct
 {
-  unsigned __int64 ImageBase;
+  unsigned long long ImageBase;
   unsigned long SectionAlignment;
   unsigned long FileAlignment;
   unsigned long OSVer;
@@ -177,10 +160,10 @@ typedef struct
   unsigned long CheckSum;
   unsigned short Subsystem;
   unsigned short DLLFlags;
-  unsigned __int64 SizeOfStackReserve;
-  unsigned __int64 SizeOfStackCommit;
-  unsigned __int64 SizeOfHeapReserve;
-  unsigned __int64 SizeOfHeapCommit;
+  unsigned long long SizeOfStackReserve;
+  unsigned long long SizeOfStackCommit;
+  unsigned long long SizeOfHeapReserve;
+  unsigned long long SizeOfHeapCommit;
   unsigned long LoaderFlags;
   unsigned long NumDirectories;
 }
@@ -341,7 +324,7 @@ typedef struct
 {
   union {
     unsigned char ShortName[8];
-    unsigned __int64 Offset;
+    unsigned long long Offset;
   } Name;
   unsigned long Value;
   unsigned short SectionNumber;
@@ -351,7 +334,7 @@ typedef struct
 }
 SymbolTable_t;
 
-#if !defined(_WIN32)
+#if !defined(TARGET_WINDOWS)
 
 #define IMAGE_SYM_UNDEFINED     0
 #define IMAGE_SYM_ABSOLUTE      0xFFFF
@@ -506,4 +489,3 @@ ImportDirTable_t;
 
 #pragma pack()
 
-#endif // __COFF_H_

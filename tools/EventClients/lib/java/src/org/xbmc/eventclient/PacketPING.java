@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2008-2009 Team XBMC http://www.xbmc.org
+ *  Copyright (C) 2008-2013 Team XBMC
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 package org.xbmc.eventclient;
 /**
  * XBMC Event Client Class
- * 
+ *
  * A PING packet tells XBMC that the client is still alive. All valid
  * packets act as ping (not just this one). A client needs to ping
  * XBMC at least once in 60 seconds or it will time

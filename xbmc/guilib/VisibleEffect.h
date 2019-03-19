@@ -1,25 +1,12 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 enum ANIMATION_PROCESS { ANIM_PROCESS_NONE = 0, ANIM_PROCESS_NORMAL, ANIM_PROCESS_REVERSE };
 enum ANIMATION_STATE { ANIM_STATE_NONE = 0, ANIM_STATE_DELAYED, ANIM_STATE_IN_PROCESS, ANIM_STATE_APPLIED };
@@ -30,9 +17,13 @@ class TiXmlElement;
 class Tweener;
 class CGUIListItem;
 
-#include "TransformMatrix.h"  // needed for the TransformMatrix member
-#include "Geometry.h"         // for CPoint, CRect
-#include "utils/StdString.h"
+#include "utils/TransformMatrix.h"  // needed for the TransformMatrix member
+#include "utils/Geometry.h"         // for CPoint, CRect
+#include <memory>
+#include "interfaces/info/InfoBool.h"
+
+#include <string>
+#include <vector>
 
 enum ANIMATION_TYPE
 {
@@ -56,7 +47,7 @@ public:
   CAnimEffect(const CAnimEffect &src);
 
   virtual ~CAnimEffect();
-  const CAnimEffect &operator=(const CAnimEffect &src);
+  CAnimEffect& operator=(const CAnimEffect &src);
 
   void Calculate(unsigned int time, const CPoint &center);
   void ApplyState(ANIMATION_STATE state, const CPoint &center);
@@ -66,7 +57,7 @@ public:
   const TransformMatrix &GetTransform() const { return m_matrix; };
   EFFECT_TYPE GetType() const { return m_effect; };
 
-  static Tweener* GetTweener(const TiXmlElement *pAnimationNode);
+  static std::shared_ptr<Tweener> GetTweener(const TiXmlElement *pAnimationNode);
 protected:
   TransformMatrix m_matrix;
   EFFECT_TYPE m_effect;
@@ -78,7 +69,7 @@ private:
   unsigned int m_length;
   unsigned int m_delay;
 
-  Tweener *m_pTweener;
+  std::shared_ptr<Tweener> m_pTweener;
 };
 
 class CFadeEffect : public CAnimEffect
@@ -86,9 +77,9 @@ class CFadeEffect : public CAnimEffect
 public:
   CFadeEffect(const TiXmlElement *node, bool reverseDefaults);
   CFadeEffect(float start, float end, unsigned int delay, unsigned int length);
-  virtual ~CFadeEffect() {};
+  ~CFadeEffect() override = default;
 private:
-  virtual void ApplyEffect(float offset, const CPoint &center);
+  void ApplyEffect(float offset, const CPoint &center) override;
 
   float m_startAlpha;
   float m_endAlpha;
@@ -97,10 +88,10 @@ private:
 class CSlideEffect : public CAnimEffect
 {
 public:
-  CSlideEffect(const TiXmlElement *node);
-  virtual ~CSlideEffect() {};
+  explicit CSlideEffect(const TiXmlElement *node);
+  ~CSlideEffect() override = default;
 private:
-  virtual void ApplyEffect(float offset, const CPoint &center);
+  void ApplyEffect(float offset, const CPoint &center) override;
 
   float m_startX;
   float m_startY;
@@ -112,9 +103,9 @@ class CRotateEffect : public CAnimEffect
 {
 public:
   CRotateEffect(const TiXmlElement *node, EFFECT_TYPE effect);
-  virtual ~CRotateEffect() {};
+  ~CRotateEffect() override = default;
 private:
-  virtual void ApplyEffect(float offset, const CPoint &center);
+  void ApplyEffect(float offset, const CPoint &center) override;
 
   float m_startAngle;
   float m_endAngle;
@@ -127,9 +118,9 @@ class CZoomEffect : public CAnimEffect
 {
 public:
   CZoomEffect(const TiXmlElement *node, const CRect &rect);
-  virtual ~CZoomEffect() {};
+  ~CZoomEffect() override = default;
 private:
-  virtual void ApplyEffect(float offset, const CPoint &center);
+  void ApplyEffect(float offset, const CPoint &center) override;
 
   float m_startX;
   float m_startY;
@@ -148,7 +139,7 @@ public:
 
   virtual ~CAnimation();
 
-  const CAnimation &operator=(const CAnimation &src);
+  CAnimation& operator=(const CAnimation &src);
 
   static CAnimation CreateFader(float start, float end, unsigned int delay, unsigned int length, ANIMATION_TYPE type = ANIM_TYPE_NONE);
 
@@ -176,15 +167,14 @@ public:
 
 private:
   void Calculate(const CPoint &point);
-  void AddEffect(const CStdString &type, const TiXmlElement *node, const CRect &rect);
-  void AddEffect(CAnimEffect *effect);
+  void AddEffect(const std::string &type, const TiXmlElement *node, const CRect &rect);
 
   enum ANIM_REPEAT { ANIM_REPEAT_NONE = 0, ANIM_REPEAT_PULSE, ANIM_REPEAT_LOOP };
 
   // type of animation
   ANIMATION_TYPE m_type;
   bool m_reversible;
-  unsigned int m_condition;
+  INFO::InfoPtr m_condition;
 
   // conditional anims can repeat
   ANIM_REPEAT m_repeatAnim;
@@ -214,17 +204,17 @@ private:
 class CScroller
 {
 public:
-  CScroller(unsigned int duration = 200, Tweener *tweener = NULL);
+  CScroller(unsigned int duration = 200, std::shared_ptr<Tweener> tweener = std::shared_ptr<Tweener>());
   CScroller(const CScroller& right);
-  const CScroller &operator=(const CScroller &src);
+  CScroller& operator=(const CScroller &src);
   ~CScroller();
 
   /**
    * Set target value scroller will be scrolling to
-   * @param endPos target 
+   * @param endPos target
    */
   void ScrollTo(float endPos);
-  
+
   /**
    * Immediately stop scrolling
    */
@@ -255,8 +245,7 @@ private:
   float        m_startPosition;           //!< Brief starting position of scroll
   bool         m_hasResumePoint;          //!< Brief check if we should tween from middle of the tween
   unsigned int m_startTime;               //!< Brief starting time of scroll
-  unsigned int m_lastTime;                //!< Brief last remember time (updated each time Scroll() method is called)
 
   unsigned int m_duration;                //!< Brief duration of scroll
-  Tweener* m_pTweener;
+  std::shared_ptr<Tweener> m_pTweener;
 };

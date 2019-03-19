@@ -1,45 +1,32 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "MusicInfoScraper.h"
-#include "URL.h"
-#include "utils/CharsetConverter.h"
 #include "utils/log.h"
+#include "filesystem/CurlFile.h"
 
 using namespace MUSIC_GRABBER;
 using namespace ADDON;
-using namespace std;
 
-CMusicInfoScraper::CMusicInfoScraper(const ADDON::ScraperPtr &scraper) : CThread("CMusicInfoScraper")
+CMusicInfoScraper::CMusicInfoScraper(const ADDON::ScraperPtr &scraper) : CThread("MusicInfoScraper")
 {
   m_bSucceeded=false;
   m_bCanceled=false;
   m_iAlbum=-1;
   m_iArtist=-1;
   m_scraper = scraper;
+  m_http = new XFILE::CCurlFile;
 }
 
 CMusicInfoScraper::~CMusicInfoScraper(void)
 {
   StopThread();
+  delete m_http;
 }
 
 int CMusicInfoScraper::GetAlbumCount() const
@@ -62,7 +49,7 @@ CMusicArtistInfo& CMusicInfoScraper::GetArtist(int iArtist)
   return m_vecArtists[iArtist];
 }
 
-void CMusicInfoScraper::FindAlbumInfo(const CStdString& strAlbum, const CStdString& strArtist /* = "" */)
+void CMusicInfoScraper::FindAlbumInfo(const std::string& strAlbum, const std::string& strArtist /* = "" */)
 {
   m_strAlbum=strAlbum;
   m_strArtist=strArtist;
@@ -71,7 +58,7 @@ void CMusicInfoScraper::FindAlbumInfo(const CStdString& strAlbum, const CStdStri
   Create();
 }
 
-void CMusicInfoScraper::FindArtistInfo(const CStdString& strArtist)
+void CMusicInfoScraper::FindArtistInfo(const std::string& strArtist)
 {
   m_strArtist=strArtist;
   m_bSucceeded=false;
@@ -81,13 +68,13 @@ void CMusicInfoScraper::FindArtistInfo(const CStdString& strArtist)
 
 void CMusicInfoScraper::FindAlbumInfo()
 {
-  m_vecAlbums = m_scraper->FindAlbum(m_http, m_strAlbum, m_strArtist);
+  m_vecAlbums = m_scraper->FindAlbum(*m_http, m_strAlbum, m_strArtist);
   m_bSucceeded = !m_vecAlbums.empty();
 }
 
 void CMusicInfoScraper::FindArtistInfo()
 {
-  m_vecArtists = m_scraper->FindArtist(m_http, m_strArtist);
+  m_vecArtists = m_scraper->FindArtist(*m_http, m_strArtist);
   m_bSucceeded = !m_vecArtists.empty();
 }
 
@@ -99,7 +86,7 @@ void CMusicInfoScraper::LoadAlbumInfo(int iAlbum)
   Create();
 }
 
-void CMusicInfoScraper::LoadArtistInfo(int iArtist, const CStdString &strSearch)
+void CMusicInfoScraper::LoadArtistInfo(int iArtist, const std::string &strSearch)
 {
   m_iAlbum=-1;
   m_iArtist=iArtist;
@@ -114,8 +101,9 @@ void CMusicInfoScraper::LoadAlbumInfo()
     return;
 
   CMusicAlbumInfo& album=m_vecAlbums[m_iAlbum];
-  album.GetAlbum().artist.clear();
-  if (album.Load(m_http,m_scraper))
+  // Clear album artist credits
+  album.GetAlbum().artistCredits.clear();
+  if (album.Load(*m_http,m_scraper))
     m_bSucceeded=true;
 }
 
@@ -125,8 +113,8 @@ void CMusicInfoScraper::LoadArtistInfo()
     return;
 
   CMusicArtistInfo& artist=m_vecArtists[m_iArtist];
-  artist.GetArtist().strArtist.Empty();
-  if (artist.Load(m_http,m_scraper,m_strSearch))
+  artist.GetArtist().strArtist.clear();
+  if (artist.Load(*m_http,m_scraper,m_strSearch))
     m_bSucceeded=true;
 }
 
@@ -142,9 +130,9 @@ bool CMusicInfoScraper::Succeeded()
 
 void CMusicInfoScraper::Cancel()
 {
-  m_http.Cancel();
+  m_http->Cancel();
   m_bCanceled=true;
-  m_http.Reset();
+  m_http->Reset();
 }
 
 bool CMusicInfoScraper::IsCanceled()
@@ -165,13 +153,13 @@ void CMusicInfoScraper::Process()
     if (m_strAlbum.size())
     {
       FindAlbumInfo();
-      m_strAlbum.Empty();
-      m_strArtist.Empty();
+      m_strAlbum.clear();
+      m_strArtist.clear();
     }
     else if (m_strArtist.size())
     {
       FindArtistInfo();
-      m_strArtist.Empty();
+      m_strArtist.clear();
     }
     if (m_iAlbum>-1)
     {
@@ -190,11 +178,11 @@ void CMusicInfoScraper::Process()
   }
 }
 
-bool CMusicInfoScraper::CheckValidOrFallback(const CStdString &fallbackScraper)
+bool CMusicInfoScraper::CheckValidOrFallback(const std::string &fallbackScraper)
 {
   return true;
+//! @todo Handle fallback mechanism
 /*
- * TODO handle fallback mechanism
   if (m_scraper->Path() != fallbackScraper &&
       parser.Load("special://xbmc/system/scrapers/music/" + fallbackScraper))
   {

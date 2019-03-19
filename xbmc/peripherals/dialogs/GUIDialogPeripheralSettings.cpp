@@ -1,221 +1,227 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIDialogPeripheralSettings.h"
-#include "addons/Skin.h"
-#include "peripherals/Peripherals.h"
-#include "settings/GUISettings.h"
-#include "utils/log.h"
-#include "video/dialogs/GUIDialogVideoSettings.h"
+#include "guilib/GUIMessage.h"
 
-using namespace std;
+#include <utility>
+
+#include "addons/Skin.h"
+#include "dialogs/GUIDialogYesNo.h"
+#include "FileItem.h"
+#include "peripherals/Peripherals.h"
+#include "settings/lib/Setting.h"
+#include "settings/lib/SettingSection.h"
+#include "utils/log.h"
+#include "utils/Variant.h"
+#include "ServiceBroker.h"
+
 using namespace PERIPHERALS;
 
-#define BUTTON_DEFAULTS 50
+CGUIDialogPeripheralSettings::CGUIDialogPeripheralSettings()
+  : CGUIDialogSettingsManualBase(WINDOW_DIALOG_PERIPHERAL_SETTINGS, "DialogSettings.xml"),
+    m_item(NULL)
+{ }
 
-CGUIDialogPeripheralSettings::CGUIDialogPeripheralSettings(void) :
-    CGUIDialogSettings(WINDOW_DIALOG_PERIPHERAL_SETTINGS, "DialogPeripheralSettings.xml"),
-    m_item(NULL),
-    m_bIsInitialising(true)
+CGUIDialogPeripheralSettings::~CGUIDialogPeripheralSettings()
 {
-}
-
-CGUIDialogPeripheralSettings::~CGUIDialogPeripheralSettings(void)
-{
-  if (m_item)
+  if (m_item != NULL)
     delete m_item;
-}
 
-void CGUIDialogPeripheralSettings::SetFileItem(CFileItemPtr item)
-{
-  if (m_item)
-  {
-    delete m_item;
-    m_boolSettings.clear();
-    m_intSettings.clear();
-    m_floatSettings.clear();
-    m_stringSettings.clear();
-    m_settings.clear();
-  }
-
-  m_item = new CFileItem(*item.get());
-}
-
-void CGUIDialogPeripheralSettings::CreateSettings()
-{
-  m_bIsInitialising = true;
-  m_usePopupSliders = g_SkinInfo->HasSkinFile("DialogSlider.xml");
-
-  if (m_item)
-  {
-    CPeripheral *peripheral = g_peripherals.GetByPath(m_item->GetPath());
-    if (peripheral)
-    {
-      vector<CSetting *> settings = peripheral->GetSettings();
-      for (size_t iPtr = 0; iPtr < settings.size(); iPtr++)
-      {
-        CSetting *setting = settings[iPtr];
-        if (!setting->IsVisible())
-        {
-          CLog::Log(LOGDEBUG, "%s - invisible", __FUNCTION__);
-          continue;
-        }
-
-        switch(setting->GetType())
-        {
-        case SETTINGS_TYPE_BOOL:
-          {
-            CSettingBool *boolSetting = (CSettingBool *) setting;
-            if (boolSetting)
-            {
-              m_boolSettings.insert(make_pair(CStdString(boolSetting->GetSetting()), boolSetting->GetData()));
-              AddBool(boolSetting->GetOrder(), boolSetting->GetLabel(), &m_boolSettings[boolSetting->GetSetting()], true);
-            }
-          }
-          break;
-        case SETTINGS_TYPE_INT:
-          {
-            CSettingInt *intSetting = (CSettingInt *) setting;
-            if (intSetting)
-            {
-              m_intSettings.insert(make_pair(CStdString(intSetting->GetSetting()), (float) intSetting->GetData()));
-              AddSlider(intSetting->GetOrder(), intSetting->GetLabel(), &m_intSettings[intSetting->GetSetting()], (float)intSetting->m_iMin, (float)intSetting->m_iStep, (float)intSetting->m_iMax, CGUIDialogVideoSettings::FormatInteger, false);
-            }
-          }
-          break;
-        case SETTINGS_TYPE_FLOAT:
-          {
-            CSettingFloat *floatSetting = (CSettingFloat *) setting;
-            if (floatSetting)
-            {
-              m_floatSettings.insert(make_pair(CStdString(floatSetting->GetSetting()), floatSetting->GetData()));
-              AddSlider(floatSetting->GetOrder(), floatSetting->GetLabel(), &m_floatSettings[floatSetting->GetSetting()], floatSetting->m_fMin, floatSetting->m_fStep, floatSetting->m_fMax, CGUIDialogVideoSettings::FormatFloat, false);
-            }
-          }
-          break;
-        case SETTINGS_TYPE_STRING:
-          {
-            CSettingString *stringSetting = (CSettingString *) setting;
-            if (stringSetting)
-            {
-              m_stringSettings.insert(make_pair(CStdString(stringSetting->GetSetting()), stringSetting->GetData()));
-              AddString(stringSetting->GetOrder(), stringSetting->GetLabel(), &m_stringSettings[stringSetting->GetSetting()]);
-            }
-          }
-          break;
-        default:
-          //TODO add more types if needed
-          CLog::Log(LOGDEBUG, "%s - unknown type", __FUNCTION__);
-          break;
-        }
-      }
-    }
-    else
-    {
-      CLog::Log(LOGDEBUG, "%s - no peripheral", __FUNCTION__);
-    }
-  }
-
-  m_bIsInitialising = false;
-}
-
-void CGUIDialogPeripheralSettings::UpdatePeripheralSettings(void)
-{
-  if (!m_item || m_bIsInitialising)
-    return;
-
-  CPeripheral *peripheral = g_peripherals.GetByPath(m_item->GetPath());
-  if (!peripheral)
-    return;
-
-  map<CStdString, bool>::iterator boolItr = m_boolSettings.begin();
-  while (boolItr != m_boolSettings.end())
-  {
-    peripheral->SetSetting((*boolItr).first, (*boolItr).second);
-    ++boolItr;
-  }
-
-  map<CStdString, float>::iterator intItr = m_intSettings.begin();
-  while (intItr != m_intSettings.end())
-  {
-    peripheral->SetSetting((*intItr).first, (int) (*intItr).second);
-    ++intItr;
-  }
-
-  map<CStdString, float>::iterator floatItr = m_floatSettings.begin();
-  while (floatItr != m_floatSettings.end())
-  {
-    peripheral->SetSetting((*floatItr).first, (*floatItr).second);
-    ++floatItr;
-  }
-
-  map<CStdString, CStdString>::iterator stringItr = m_stringSettings.begin();
-  while (stringItr != m_stringSettings.end())
-  {
-    peripheral->SetSetting((*stringItr).first, (*stringItr).second);
-    ++stringItr;
-  }
-
-  peripheral->PersistSettings();
+  m_settingsMap.clear();
 }
 
 bool CGUIDialogPeripheralSettings::OnMessage(CGUIMessage &message)
 {
   if (message.GetMessage() == GUI_MSG_CLICKED &&
-      message.GetSenderId() == BUTTON_DEFAULTS)
+      message.GetSenderId() == CONTROL_SETTINGS_CUSTOM_BUTTON)
   {
-    ResetDefaultSettings();
+    OnResetSettings();
     return true;
   }
 
-  return CGUIDialogSettings::OnMessage(message);
+  return CGUIDialogSettingsManualBase::OnMessage(message);
 }
 
-void CGUIDialogPeripheralSettings::OnOkay(void)
+void CGUIDialogPeripheralSettings::SetFileItem(const CFileItem *item)
 {
-  UpdatePeripheralSettings();
+  if (item == NULL)
+    return;
+
+  if (m_item != NULL)
+    delete m_item;
+
+  m_item = new CFileItem(*item);
 }
 
-void CGUIDialogPeripheralSettings::ResetDefaultSettings(void)
+void CGUIDialogPeripheralSettings::OnSettingChanged(std::shared_ptr<const CSetting> setting)
 {
-  if (m_item)
+  if (setting == NULL)
+    return;
+
+  CGUIDialogSettingsManualBase::OnSettingChanged(setting);
+
+  // we need to copy the new value of the setting from the copy to the
+  // original setting
+  std::map<std::string, std::shared_ptr<CSetting>>::iterator itSetting = m_settingsMap.find(setting->GetId());
+  if (itSetting == m_settingsMap.end())
+    return;
+
+  itSetting->second->FromString(setting->ToString());
+}
+
+void CGUIDialogPeripheralSettings::Save()
+{
+  if (m_item == NULL || m_initialising)
+    return;
+
+  PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+  if (!peripheral)
+    return;
+
+  peripheral->PersistSettings();
+}
+
+void CGUIDialogPeripheralSettings::OnResetSettings()
+{
+  if (m_item == NULL)
+    return;
+
+  PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+  if (!peripheral)
+    return;
+
+  if (!CGUIDialogYesNo::ShowAndGetInput(CVariant{10041}, CVariant{10042}))
+    return;
+
+  // reset the settings in the peripheral
+  peripheral->ResetDefaultSettings();
+
+  // re-create all settings and their controls
+  SetupView();
+}
+
+void CGUIDialogPeripheralSettings::SetupView()
+{
+  CGUIDialogSettingsManualBase::SetupView();
+
+  SetHeading(m_item->GetLabel());
+  SET_CONTROL_LABEL(CONTROL_SETTINGS_OKAY_BUTTON, 186);
+  SET_CONTROL_LABEL(CONTROL_SETTINGS_CANCEL_BUTTON, 222);
+  SET_CONTROL_LABEL(CONTROL_SETTINGS_CUSTOM_BUTTON, 409);
+}
+
+void CGUIDialogPeripheralSettings::InitializeSettings()
+{
+  if (m_item == NULL)
   {
-    CPeripheral *peripheral = g_peripherals.GetByPath(m_item->GetPath());
-    if (!peripheral)
-      return;
-
-    /* reset the settings in the peripheral */
-    peripheral->ResetDefaultSettings();
-
-    CSingleLock lock(g_graphicsContext);
-
-    /* clear the settings */
-    m_boolSettings.clear();
-    m_intSettings.clear();
-    m_floatSettings.clear();
-    m_stringSettings.clear();
-    m_settings.clear();
-
-    /* reinit the window */
-    CreateSettings();
-    SetupPage(); // will clear the previous controls first
+    m_initialising = false;
+    return;
   }
+
+  m_initialising = true;
+  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+
+  PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+  if (!peripheral)
+  {
+    CLog::Log(LOGDEBUG, "%s - no peripheral", __FUNCTION__);
+    m_initialising = false;
+    return;
+  }
+
+  m_settingsMap.clear();
+  CGUIDialogSettingsManualBase::InitializeSettings();
+
+  const std::shared_ptr<CSettingCategory> category = AddCategory("peripheralsettings", -1);
+  if (category == NULL)
+  {
+    CLog::Log(LOGERROR, "CGUIDialogPeripheralSettings: unable to setup settings");
+    return;
+  }
+
+  const std::shared_ptr<CSettingGroup> group = AddGroup(category);
+  if (group == NULL)
+  {
+    CLog::Log(LOGERROR, "CGUIDialogPeripheralSettings: unable to setup settings");
+    return;
+  }
+
+  std::vector<SettingPtr> settings = peripheral->GetSettings();
+  for (std::vector<SettingPtr>::iterator itSetting = settings.begin(); itSetting != settings.end(); ++itSetting)
+  {
+    SettingPtr setting = *itSetting;
+    if (setting == NULL)
+      continue;
+
+    if (!setting->IsVisible())
+    {
+      CLog::Log(LOGDEBUG, "%s - invisible", __FUNCTION__);
+      continue;
+    }
+
+    // we need to create a copy of the setting because the CSetting instances
+    // are destroyed when leaving the dialog
+    SettingPtr settingCopy;
+    switch(setting->GetType())
+    {
+      case SettingType::Boolean:
+      {
+        std::shared_ptr<CSettingBool> settingBool = std::make_shared<CSettingBool>(setting->GetId(), *std::static_pointer_cast<CSettingBool>(setting));
+        settingBool->SetControl(GetCheckmarkControl());
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingBool);
+        break;
+      }
+
+      case SettingType::Integer:
+      {
+        std::shared_ptr<CSettingInt> settingInt = std::make_shared<CSettingInt>(setting->GetId(), *std::static_pointer_cast<CSettingInt>(setting));
+        if (settingInt->GetTranslatableOptions().empty())
+          settingInt->SetControl(GetSliderControl("integer", false, -1, usePopup, -1, "%i"));
+        else
+          settingInt->SetControl(GetSpinnerControl("string"));
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingInt);
+        break;
+      }
+
+      case SettingType::Number:
+      {
+        std::shared_ptr<CSettingNumber> settingNumber = std::make_shared<CSettingNumber>(setting->GetId(), *std::static_pointer_cast<CSettingNumber>(setting));
+        settingNumber->SetControl(GetSliderControl("number", false, -1, usePopup, -1, "%2.2f"));
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingNumber);
+        break;
+      }
+
+      case SettingType::String:
+      {
+        std::shared_ptr<CSettingString> settingString = std::make_shared<CSettingString>(setting->GetId(), *std::static_pointer_cast<CSettingString>(setting));
+        settingString->SetControl(GetEditControl("string"));
+
+        settingCopy = std::static_pointer_cast<CSetting>(settingString);
+        break;
+      }
+
+      default:
+        //! @todo add more types if needed
+        CLog::Log(LOGDEBUG, "%s - unknown type", __FUNCTION__);
+        break;
+    }
+
+    if (settingCopy != NULL && settingCopy->GetControl() != NULL)
+    {
+      settingCopy->SetLevel(SettingLevel::Basic);
+      group->AddSetting(settingCopy);
+      m_settingsMap.insert(std::make_pair(setting->GetId(), setting));
+    }
+  }
+
+  m_initialising = false;
 }

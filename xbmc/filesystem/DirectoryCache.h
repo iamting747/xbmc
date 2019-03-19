@@ -1,27 +1,14 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
 #include "IDirectory.h"
-#include "Directory.h"
 #include "threads/CriticalSection.h"
 
 #include <map>
@@ -36,7 +23,7 @@ namespace XFILE
     class CDir
     {
     public:
-      CDir(DIR_CACHE_TYPE cacheType);
+      explicit CDir(DIR_CACHE_TYPE cacheType);
       virtual ~CDir();
 
       void SetLastAccess(unsigned int &accessCounter);
@@ -45,42 +32,35 @@ namespace XFILE
       CFileItemList* m_Items;
       DIR_CACHE_TYPE m_cacheType;
     private:
+      CDir(const CDir&) = delete;
+      CDir& operator=(const CDir&) = delete;
       unsigned int m_lastAccess;
     };
   public:
     CDirectoryCache(void);
     virtual ~CDirectoryCache(void);
-    bool GetDirectory(const CStdString& strPath, CFileItemList &items, bool retrieveAll = false);
-    void SetDirectory(const CStdString& strPath, const CFileItemList &items, DIR_CACHE_TYPE cacheType);
-    void ClearDirectory(const CStdString& strPath);
-    void ClearFile(const CStdString& strFile);
-    void ClearSubPaths(const CStdString& strPath);
+    bool GetDirectory(const std::string& strPath, CFileItemList &items, bool retrieveAll = false);
+    void SetDirectory(const std::string& strPath, const CFileItemList &items, DIR_CACHE_TYPE cacheType);
+    void ClearDirectory(const std::string& strPath);
+    void ClearFile(const std::string& strFile);
+    void ClearSubPaths(const std::string& strPath);
     void Clear();
-    void AddFile(const CStdString& strFile);
-    bool FileExists(const CStdString& strPath, bool& bInCache);
-    void InitThumbCache();
-    void ClearThumbCache();
-    void InitMusicThumbCache();
-    void ClearMusicThumbCache();
+    void AddFile(const std::string& strFile);
+    bool FileExists(const std::string& strPath, bool& bInCache);
 #ifdef _DEBUG
     void PrintStats() const;
 #endif
   protected:
-    void InitCache(std::set<CStdString>& dirs);
-    void ClearCache(std::set<CStdString>& dirs);
-    bool IsCacheDir(const CStdString &strPath) const;
+    void InitCache(std::set<std::string>& dirs);
+    void ClearCache(std::set<std::string>& dirs);
     void CheckIfFull();
 
-    std::map<CStdString, CDir*> m_cache;
-    typedef std::map<CStdString, CDir*>::iterator iCache;
-    typedef std::map<CStdString, CDir*>::const_iterator ciCache;
+    std::map<std::string, CDir*> m_cache;
+    typedef std::map<std::string, CDir*>::iterator iCache;
+    typedef std::map<std::string, CDir*>::const_iterator ciCache;
     void Delete(iCache i);
 
-    CCriticalSection m_cs;
-    std::set<CStdString> m_thumbDirs;
-    std::set<CStdString> m_musicThumbDirs;
-    int m_iThumbCacheRefCount;
-    int m_iMusicThumbCacheRefCount;
+    mutable CCriticalSection m_cs;
 
     unsigned int m_accessCounter;
 

@@ -1,36 +1,30 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUITextBox.h"
-#include "utils/CharsetConverter.h"
 #include "GUIInfoManager.h"
+#include "GUIMessage.h"
+#include "guilib/GUIComponent.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/MathUtils.h"
+#include "utils/StringUtils.h"
+#include "guilib/guiinfo/GUIInfoLabels.h"
 
-using namespace std;
+#include <algorithm>
+
+using namespace KODI::GUILIB;
 
 CGUITextBox::CGUITextBox(int parentID, int controlID, float posX, float posY, float width, float height,
-                         const CLabelInfo& labelInfo, int scrollTime)
+                         const CLabelInfo& labelInfo, int scrollTime,
+                         const CLabelInfo* labelInfoMono)
     : CGUIControl(parentID, controlID, posX, posY, width, height)
     , CGUITextLayout(labelInfo.font, true)
+    , m_label(labelInfo)
 {
   m_offset = 0;
   m_scrollOffset = 0;
@@ -41,12 +35,14 @@ CGUITextBox::CGUITextBox(int parentID, int controlID, float posX, float posY, fl
   m_pageControl = 0;
   m_lastRenderTime = 0;
   m_scrollTime = scrollTime;
-  m_autoScrollCondition = 0;
   m_autoScrollTime = 0;
   m_autoScrollDelay = 3000;
   m_autoScrollDelayTime = 0;
   m_autoScrollRepeatAnim = NULL;
-  m_label = labelInfo;
+  m_minHeight = 0;
+  m_renderHeight = height;
+  if (labelInfoMono)
+    SetMonoFont(labelInfoMono->font);
 }
 
 CGUITextBox::CGUITextBox(const CGUITextBox &from)
@@ -57,6 +53,8 @@ CGUITextBox::CGUITextBox(const CGUITextBox &from)
   m_autoScrollCondition = from.m_autoScrollCondition;
   m_autoScrollTime = from.m_autoScrollTime;
   m_autoScrollDelay = from.m_autoScrollDelay;
+  m_minHeight = from.m_minHeight;
+  m_renderHeight = from.m_renderHeight;
   m_autoScrollRepeatAnim = NULL;
   if (from.m_autoScrollRepeatAnim)
     m_autoScrollRepeatAnim = new CAnimation(*from.m_autoScrollRepeatAnim);
@@ -87,6 +85,8 @@ bool CGUITextBox::UpdateColors()
   return changed;
 }
 
+#define CLAMP(x, low, high)  (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
+
 void CGUITextBox::UpdateInfo(const CGUIListItem *item)
 {
   m_textColor = m_label.textColor;
@@ -100,7 +100,10 @@ void CGUITextBox::UpdateInfo(const CGUIListItem *item)
   ResetAutoScrolling();
 
   m_itemHeight = m_font ? m_font->GetLineHeight() : 10;
-  m_itemsPerPage = (unsigned int)(m_height / m_itemHeight);
+  float textHeight = m_font ? m_font->GetTextHeight(m_lines.size()) : m_itemHeight * m_lines.size();
+  float maxHeight = m_height ? m_height : textHeight;
+  m_renderHeight = m_minHeight ? CLAMP(textHeight, m_minHeight, maxHeight) : m_height;
+  m_itemsPerPage = (unsigned int)(m_renderHeight / m_itemHeight);
 
   UpdatePageControl();
 }
@@ -125,7 +128,7 @@ void CGUITextBox::Process(unsigned int currentTime, CDirtyRegionList &dirtyregio
   // update our auto-scrolling as necessary
   if (m_autoScrollTime && m_lines.size() > m_itemsPerPage)
   {
-    if (!m_autoScrollCondition || g_infoManager.GetBoolValue(m_autoScrollCondition))
+    if (!m_autoScrollCondition || m_autoScrollCondition->Get())
     {
       if (m_lastRenderTime)
         m_autoScrollDelayTime += currentTime - m_lastRenderTime;
@@ -162,7 +165,7 @@ void CGUITextBox::Process(unsigned int currentTime, CDirtyRegionList &dirtyregio
     m_autoScrollRepeatAnim->Animate(currentTime, true);
     TransformMatrix matrix;
     m_autoScrollRepeatAnim->RenderAnimation(matrix);
-    m_cachedTextMatrix = g_graphicsContext.AddTransform(matrix);
+    m_cachedTextMatrix = CServiceBroker::GetWinSystem()->GetGfxContext().AddTransform(matrix);
   }
 
   // update our scroll position as necessary
@@ -188,16 +191,16 @@ void CGUITextBox::Process(unsigned int currentTime, CDirtyRegionList &dirtyregio
   CGUIControl::Process(currentTime, dirtyregions);
 
   if (m_autoScrollRepeatAnim)
-    g_graphicsContext.RemoveTransform();
+    CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
 }
 
 void CGUITextBox::Render()
 {
   // render the repeat anim as appropriate
   if (m_autoScrollRepeatAnim)
-    g_graphicsContext.SetTransform(m_cachedTextMatrix);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetTransform(m_cachedTextMatrix);
 
-  if (g_graphicsContext.SetClipRegion(m_posX, m_posY, m_width, m_height))
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().SetClipRegion(m_posX, m_posY, m_width, m_renderHeight))
   {
     // we offset our draw position to take into account scrolling and whether or not our focused
     // item is offscreen "above" the list.
@@ -205,32 +208,52 @@ void CGUITextBox::Render()
     float posX = m_posX;
     float posY = m_posY + offset * m_itemHeight - m_scrollOffset;
 
+    uint32_t alignment = m_label.align;
+
+    if (alignment & XBFONT_CENTER_Y)
+    {
+      if (m_font)
+      {
+        float textHeight = m_font->GetTextHeight(std::min((unsigned int)m_lines.size(), m_itemsPerPage));
+
+        if (textHeight <= m_renderHeight)
+          posY += (m_renderHeight - textHeight) * 0.5f;
+      }
+
+      alignment &= ~XBFONT_CENTER_Y;
+    }
+
     // alignment correction
-    if (m_label.align & XBFONT_CENTER_X)
+    if (alignment & XBFONT_CENTER_X)
       posX += m_width * 0.5f;
-    if (m_label.align & XBFONT_RIGHT)
+    if (alignment & XBFONT_RIGHT)
       posX += m_width;
 
     if (m_font)
     {
       m_font->Begin();
       int current = offset;
-      while (posY < m_posY + m_height && current < (int)m_lines.size())
+
+      // set the main text color
+      if (m_colors.size())
+        m_colors[0] = m_label.textColor;
+
+      while (posY < m_posY + m_renderHeight && current < (int)m_lines.size())
       {
-        uint32_t align = m_label.align;
+        uint32_t align = alignment;
         if (m_lines[current].m_text.size() && m_lines[current].m_carriageReturn)
           align &= ~XBFONT_JUSTIFIED; // last line of a paragraph shouldn't be justified
-        m_font->DrawText(posX, posY + 2, m_colors, m_label.shadowColor, m_lines[current].m_text, align, m_width);
+        m_font->DrawText(posX, posY, m_colors, m_label.shadowColor, m_lines[current].m_text, align, m_width);
         posY += m_itemHeight;
         current++;
       }
       m_font->End();
     }
 
-    g_graphicsContext.RestoreClipRegion();
+    CServiceBroker::GetWinSystem()->GetGfxContext().RestoreClipRegion();
   }
   if (m_autoScrollRepeatAnim)
-    g_graphicsContext.RemoveTransform();
+    CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
   CGUIControl::Render();
 }
 
@@ -253,11 +276,8 @@ bool CGUITextBox::OnMessage(CGUIMessage& message)
       m_scrollOffset = 0;
       ResetAutoScrolling();
       CGUITextLayout::Reset();
-      if (m_pageControl)
-      {
-        CGUIMessage msg(GUI_MSG_LABEL_RESET, GetID(), m_pageControl, m_itemsPerPage, m_lines.size());
-        SendWindowMessage(msg);
-      }
+      UpdatePageControl();
+      SetInvalid();
     }
 
     if (message.GetMessage() == GUI_MSG_PAGE_CHANGE)
@@ -268,9 +288,28 @@ bool CGUITextBox::OnMessage(CGUIMessage& message)
         return true;
       }
     }
+
+    if (message.GetMessage() == GUI_MSG_SET_TYPE)
+    {
+      UseMonoFont(message.GetParam1() == 1 ? true : false);
+      return true;
+    }
   }
 
   return CGUIControl::OnMessage(message);
+}
+
+float CGUITextBox::GetHeight() const
+{
+  return m_renderHeight;
+}
+
+void CGUITextBox::SetMinHeight(float minHeight)
+{
+  if (m_minHeight != minHeight)
+    SetInvalid();
+
+  m_minHeight = minHeight;
 }
 
 void CGUITextBox::UpdatePageControl()
@@ -292,7 +331,7 @@ void CGUITextBox::SetPageControl(int pageControl)
   m_pageControl = pageControl;
 }
 
-void CGUITextBox::SetInfo(const CGUIInfoLabel &infoLabel)
+void CGUITextBox::SetInfo(const GUIINFO::CGUIInfoLabel &infoLabel)
 {
   m_info = infoLabel;
 }
@@ -324,11 +363,20 @@ void CGUITextBox::SetAutoScrolling(const TiXmlNode *node)
     scroll->Attribute("delay", &m_autoScrollDelay);
     scroll->Attribute("time", &m_autoScrollTime);
     if (scroll->FirstChild())
-      m_autoScrollCondition = g_infoManager.Register(scroll->FirstChild()->ValueStr(), GetParentID());
+      m_autoScrollCondition = CServiceBroker::GetGUI()->GetInfoManager().Register(scroll->FirstChild()->ValueStr(), GetParentID());
     int repeatTime;
     if (scroll->Attribute("repeat", &repeatTime))
       m_autoScrollRepeatAnim = new CAnimation(CAnimation::CreateFader(100, 0, repeatTime, 1000));
   }
+}
+
+void CGUITextBox::SetAutoScrolling(int delay, int time, int repeatTime, const std::string &condition /* = "" */)
+{
+  m_autoScrollDelay = delay;
+  m_autoScrollTime = time;
+  if (!condition.empty())
+    m_autoScrollCondition = CServiceBroker::GetGUI()->GetInfoManager().Register(condition, GetParentID());
+  m_autoScrollRepeatAnim = new CAnimation(CAnimation::CreateFader(100, 0, repeatTime, 1000));
 }
 
 void CGUITextBox::ResetAutoScrolling()
@@ -343,28 +391,51 @@ unsigned int CGUITextBox::GetRows() const
   return m_lines.size();
 }
 
+int CGUITextBox::GetNumPages() const
+{
+  return (GetRows() + m_itemsPerPage - 1) / m_itemsPerPage;
+}
+
 int CGUITextBox::GetCurrentPage() const
 {
   if (m_offset + m_itemsPerPage >= GetRows())  // last page
-    return (GetRows() + m_itemsPerPage - 1) / m_itemsPerPage;
+    return GetNumPages();
   return m_offset / m_itemsPerPage + 1;
 }
 
-CStdString CGUITextBox::GetLabel(int info) const
+std::string CGUITextBox::GetLabel(int info) const
 {
-  CStdString label;
+  std::string label;
   switch (info)
   {
   case CONTAINER_NUM_PAGES:
-    label.Format("%u", (GetRows() + m_itemsPerPage - 1) / m_itemsPerPage);
+    label = StringUtils::Format("%u", GetNumPages());
     break;
   case CONTAINER_CURRENT_PAGE:
-    label.Format("%u", GetCurrentPage());
+    label = StringUtils::Format("%u", GetCurrentPage());
     break;
   default:
     break;
   }
   return label;
+}
+
+bool CGUITextBox::GetCondition(int condition, int data) const
+{
+  switch (condition)
+  {
+  case CONTAINER_HAS_NEXT:
+      return (GetCurrentPage() < GetNumPages());
+  case CONTAINER_HAS_PREVIOUS:
+    return (GetCurrentPage() > 1);
+  default:
+    return false;
+  }
+}
+
+std::string CGUITextBox::GetDescription() const
+{
+  return GetText();
 }
 
 void CGUITextBox::UpdateVisibility(const CGUIListItem *item)

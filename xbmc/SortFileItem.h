@@ -1,27 +1,12 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/LabelFormatter.h"
-#include "utils/SortUtils.h"
+#pragma once
 
 typedef enum {
   SORT_METHOD_NONE=0,
@@ -36,6 +21,7 @@ typedef enum {
   SORT_METHOD_TITLE,
   SORT_METHOD_TITLE_IGNORE_THE,
   SORT_METHOD_ARTIST,
+  SORT_METHOD_ARTIST_AND_YEAR,
   SORT_METHOD_ARTIST_IGNORE_THE,
   SORT_METHOD_ALBUM,
   SORT_METHOD_ALBUM_IGNORE_THE,
@@ -43,6 +29,7 @@ typedef enum {
   SORT_METHOD_COUNTRY,
   SORT_METHOD_YEAR,
   SORT_METHOD_VIDEO_RATING,
+  SORT_METHOD_VIDEO_USER_RATING,
   SORT_METHOD_DATEADDED,
   SORT_METHOD_PROGRAM_COUNT,
   SORT_METHOD_PLAYLIST_ORDER,
@@ -52,6 +39,7 @@ typedef enum {
   SORT_METHOD_VIDEO_SORT_TITLE_IGNORE_THE,
   SORT_METHOD_PRODUCTIONCODE,
   SORT_METHOD_SONG_RATING,
+  SORT_METHOD_SONG_USER_RATING,
   SORT_METHOD_MPAA_RATING,
   SORT_METHOD_VIDEO_RUNTIME,
   SORT_METHOD_STUDIO,
@@ -62,14 +50,9 @@ typedef enum {
   SORT_METHOD_PLAYCOUNT,
   SORT_METHOD_LISTENERS,
   SORT_METHOD_UNSORTED,
+  SORT_METHOD_CHANNEL,
+  SORT_METHOD_CHANNEL_NUMBER,
   SORT_METHOD_BITRATE,
+  SORT_METHOD_DATE_TAKEN,
   SORT_METHOD_MAX
 } SORT_METHOD;
-
-typedef struct
-{
-  SORT_METHOD m_sortMethod;
-  int m_buttonLabel;
-  LABEL_MASKS m_labelMasks;
-} SORT_METHOD_DETAILS;
-

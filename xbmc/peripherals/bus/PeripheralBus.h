@@ -1,62 +1,29 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <memory>
 #include <vector>
-#include "utils/StdString.h"
-#include "threads/Thread.h"
+
 #include "peripherals/PeripheralTypes.h"
-#include "peripherals/devices/Peripheral.h"
+#include "threads/Thread.h"
 
 class CFileItemList;
 
 namespace PERIPHERALS
 {
+  class CPeripheral;
   class CPeripherals;
-
-  struct PeripheralScanResult
-  {
-    bool operator ==(const PeripheralScanResult &right) const;
-    bool operator !=(const PeripheralScanResult &right) const;
-
-    bool operator ==(const CPeripheral &right) const;
-    bool operator !=(const CPeripheral &right) const;
-
-    PeripheralType m_type;
-    CStdString     m_strLocation;
-    int            m_iVendorId;
-    int            m_iProductId;
-  };
-
-  struct PeripheralScanResults
-  {
-    bool GetDeviceOnLocation(const CStdString &strLocation, PeripheralScanResult *result) const;
-    bool ContainsResult(const PeripheralScanResult &result) const;
-
-    std::vector<PeripheralScanResult> m_results;
-  };
 
   /*!
    * @class CPeripheralBus
-   * This represents a bus on the system. By default, this bus instance will scan for changes every second.
+   * This represents a bus on the system. By default, this bus instance will scan for changes every 5 seconds.
    * If this bus only has to be updated after a notification sent by the system, set m_bNeedsPolling to false
    * in the constructor, and implement the OnDeviceAdded(), OnDeviceChanged() and OnDeviceRemoved() methods.
    *
@@ -65,41 +32,55 @@ namespace PERIPHERALS
   class CPeripheralBus : protected CThread
   {
   public:
-    CPeripheralBus(CPeripherals *manager, PeripheralBusType type);
-    virtual ~CPeripheralBus(void) { Clear(); }
+    CPeripheralBus(const std::string &threadname, CPeripherals& manager, PeripheralBusType type);
+    ~CPeripheralBus(void) override { Clear(); }
 
     /*!
      * @return The bus type
      */
-    const PeripheralBusType Type(void) const { return m_type; }
+    PeripheralBusType Type(void) const { return m_type; }
 
     /*!
      * @return True if this bus needs to be polled for changes, false if this bus performs updates via callbacks
      */
-    bool NeedsPolling(void) const { return m_bNeedsPolling; }
+    bool NeedsPolling(void) const { CSingleLock lock(m_critSection); return m_bNeedsPolling; }
+
+    /*!
+    * \brief Initialize the properties of a peripheral with a known location
+    */
+    virtual bool InitializeProperties(CPeripheral& peripheral);
 
     /*!
      * @brief Get the instance of the peripheral at the given location.
      * @param strLocation The location.
      * @return The peripheral or NULL if it wasn't found.
      */
-    virtual CPeripheral *GetPeripheral(const CStdString &strLocation) const;
+    virtual PeripheralPtr GetPeripheral(const std::string &strLocation) const;
 
     /*!
      * @brief Check whether a peripheral is present at the given location.
      * @param strLocation The location.
      * @return True when a peripheral was found, false otherwise.
      */
-    virtual bool HasPeripheral(const CStdString &strLocation) const;
+    virtual bool HasPeripheral(const std::string &strLocation) const;
 
     /*!
-     * @brief Get the first instance of a peripheral that has the given feature.
-     * @param feature The feature to search for.
-     * @return The peripheral or NULL if it wasn't found.
+     * @brief Check if the bus supports the given feature
+     * @param feature The feature to check for
+     * @return True if the bus supports the feature, false otherwise
      */
-    virtual int GetPeripheralsWithFeature(std::vector<CPeripheral *> &results, const PeripheralFeature feature) const;
+    virtual bool SupportsFeature(PeripheralFeature feature) const { return false; }
 
-    virtual size_t GetNumberOfPeripherals() const;
+    /*!
+     * @brief Get all peripheral instances that have the given feature.
+     * @param results The list of results.
+     * @param feature The feature to search for.
+     * @return The number of devices that have been found.
+     */
+    virtual unsigned int GetPeripheralsWithFeature(PeripheralVector &results, const PeripheralFeature feature) const;
+
+    virtual unsigned int GetNumberOfPeripherals() const;
+    virtual unsigned int GetNumberOfPeripheralsWithId(const int iVendorId, const int iProductId) const;
 
     /*!
      * @brief Get all features that are supported by devices on this bus.
@@ -118,24 +99,24 @@ namespace PERIPHERALS
      * @brief Callback method for when a device has been added. Will perform a device scan.
      * @param strLocation The location of the device that has been added.
      */
-    virtual void OnDeviceAdded(const CStdString &strLocation);
+    virtual void OnDeviceAdded(const std::string &strLocation);
 
     /*!
      * @brief Callback method for when a device has been changed. Will perform a device scan.
      * @param strLocation The location of the device that has been changed.
      */
-    virtual void OnDeviceChanged(const CStdString &strLocation);
+    virtual void OnDeviceChanged(const std::string &strLocation);
 
     /*!
      * @brief Callback method for when a device has been removed. Will perform a device scan.
      * @param strLocation The location of the device that has been removed.
      */
-    virtual void OnDeviceRemoved(const CStdString &strLocation);
+    virtual void OnDeviceRemoved(const std::string &strLocation);
 
     /*!
      * @brief Initialise this bus and start a polling thread if this bus needs polling.
      */
-    virtual bool Initialise(void);
+    virtual void Initialise(void);
 
     /*!
      * @brief Stop the polling thread and clear all known devices on this bus.
@@ -152,25 +133,42 @@ namespace PERIPHERALS
      * @param strPath The path to the directory to get the items from.
      * @param items The item list.
      */
-    virtual void GetDirectory(const CStdString &strPath, CFileItemList &items) const;
+    virtual void GetDirectory(const std::string &strPath, CFileItemList &items) const;
 
     /*!
      * @brief Get the instance of a peripheral given it's path.
      * @param strPath The path to the peripheral.
      * @return The peripheral or NULL if it wasn't found.
      */
-    virtual CPeripheral *GetByPath(const CStdString &strPath) const;
+    virtual PeripheralPtr GetByPath(const std::string &strPath) const;
 
     /*!
      * @brief Register a new peripheral on this bus.
      * @param peripheral The peripheral to register.
      */
-    virtual void Register(CPeripheral *peripheral);
+    virtual void Register(const PeripheralPtr& peripheral);
 
-    virtual bool FindComPort(CStdString &strLocation) { return false; }
+    virtual bool FindComPort(std::string &strLocation) { return false; }
+
+    /*!
+     * \brief Poll for events
+     */
+    virtual void ProcessEvents(void) { }
+
+    /*!
+    * \brief Initialize button mapping
+    * \return True if button mapping is enabled for this bus
+    */
+    virtual void EnableButtonMapping() { }
+
+    /*!
+     * \brief Power off the specified device
+     * \param strLocation The device's location
+     */
+    virtual void PowerOff(const std::string& strLocation) { }
 
   protected:
-    virtual void Process(void);
+    void Process(void) override;
     virtual bool ScanForDevices(void);
     virtual void UnregisterRemovedDevices(const PeripheralScanResults &results);
     virtual void RegisterNewDevices(const PeripheralScanResults &results);
@@ -182,14 +180,14 @@ namespace PERIPHERALS
      */
     virtual bool PerformDeviceScan(PeripheralScanResults &results) = 0;
 
-    std::vector<CPeripheral *> m_peripherals;
+    PeripheralVector           m_peripherals;
     int                        m_iRescanTime;
-    bool                       m_bInitialised;
-    bool                       m_bIsStarted;
     bool                       m_bNeedsPolling; /*!< true when this bus needs to be polled for new devices, false when it uses callbacks to notify this bus of changed */
-    CPeripherals *             m_manager;
-    PeripheralBusType          m_type;
-    CCriticalSection           m_critSection;
+    CPeripherals&              m_manager;
+    const PeripheralBusType    m_type;
+    mutable CCriticalSection   m_critSection;
     CEvent                     m_triggerEvent;
   };
+  using PeripheralBusPtr = std::shared_ptr<CPeripheralBus>;
+  using PeripheralBusVector = std::vector<PeripheralBusPtr>;
 }

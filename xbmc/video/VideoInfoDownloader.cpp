@@ -1,51 +1,44 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "VideoInfoDownloader.h"
-#include "Util.h"
-#include "utils/XMLUtils.h"
-#include "utils/RegExp.h"
-#include "NfoFile.h"
 #include "dialogs/GUIDialogProgress.h"
-#include "dialogs/GUIDialogOK.h"
-#include "Application.h"
-#include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "messaging/ApplicationMessenger.h"
+#include "messaging/helpers/DialogOKHelper.h"
 #include "utils/log.h"
-#include "utils/URIUtils.h"
+#include "utils/Variant.h"
 
-using namespace std;
+using namespace VIDEO;
+using namespace KODI::MESSAGING;
 
 #ifndef __GNUC__
 #pragma warning (disable:4018)
 #endif
 
+CVideoInfoDownloader::CVideoInfoDownloader(const ADDON::ScraperPtr &scraper) :
+  CThread("VideoInfoDownloader"), m_state(DO_NOTHING), m_found(0), m_info(scraper)
+{
+  m_http = new XFILE::CCurlFile;
+}
+
+CVideoInfoDownloader::~CVideoInfoDownloader()
+{
+  delete m_http;
+}
+
 // return value: 0 = we failed, -1 = we failed and reported an error, 1 = success
-int CVideoInfoDownloader::InternalFindMovie(const CStdString &strMovie,
+int CVideoInfoDownloader::InternalFindMovie(const std::string &movieTitle, int movieYear,
                                             MOVIELIST& movielist,
                                             bool cleanChars /* = true */)
 {
   try
   {
-    movielist = m_info->FindMovie(m_http, strMovie, cleanChars);
+    movielist = m_info->FindMovie(*m_http, movieTitle, movieYear, cleanChars);
   }
   catch (const ADDON::CScraperError &sce)
   {
@@ -58,12 +51,7 @@ int CVideoInfoDownloader::InternalFindMovie(const CStdString &strMovie,
 void CVideoInfoDownloader::ShowErrorDialog(const ADDON::CScraperError &sce)
 {
   if (!sce.Title().empty())
-  {
-    CGUIDialogOK *pdlg = (CGUIDialogOK *)g_windowManager.GetWindow(WINDOW_DIALOG_OK);
-    pdlg->SetHeading(sce.Title());
-    pdlg->SetLine(0, sce.Message());
-    g_application.getApplicationMessenger().DoModal(pdlg, WINDOW_DIALOG_OK);
-  }
+    HELPERS::ShowOKDialogText(CVariant{ sce.Title() }, CVariant{ sce.Message() });
 }
 
 // threaded functions
@@ -74,8 +62,8 @@ void CVideoInfoDownloader::Process()
   m_found = 0;
   if (m_state == FIND_MOVIE)
   {
-    if (!(m_found=FindMovie(m_strMovie, m_movieList)))
-      CLog::Log(LOGERROR, "%s: Error looking up item %s", __FUNCTION__, m_strMovie.c_str());
+    if (!(m_found=FindMovie(m_movieTitle, m_movieYear, m_movieList)))
+      CLog::Log(LOGERROR, "%s: Error looking up item %s (%d)", __FUNCTION__, m_movieTitle.c_str(), m_movieYear);
     m_state = DO_NOTHING;
     return;
   }
@@ -84,7 +72,7 @@ void CVideoInfoDownloader::Process()
   {
     // empty url when it's not supposed to be..
     // this might happen if the previously scraped item was removed from the site (see ticket #10537)
-    CLog::Log(LOGERROR, "%s: Error getting details for %s due to an empty url", __FUNCTION__, m_strMovie.c_str());
+    CLog::Log(LOGERROR, "%s: Error getting details for %s (%d) due to an empty url", __FUNCTION__, m_movieTitle.c_str(), m_movieYear);
   }
   else if (m_state == GET_DETAILS)
   {
@@ -105,7 +93,7 @@ void CVideoInfoDownloader::Process()
   m_state = DO_NOTHING;
 }
 
-int CVideoInfoDownloader::FindMovie(const CStdString &strMovie,
+int CVideoInfoDownloader::FindMovie(const std::string &movieTitle, int movieYear,
                                     MOVIELIST& movieList,
                                     CGUIDialogProgress *pProgress /* = NULL */)
 {
@@ -114,7 +102,8 @@ int CVideoInfoDownloader::FindMovie(const CStdString &strMovie,
   if (pProgress)
   { // threaded version
     m_state = FIND_MOVIE;
-    m_strMovie = strMovie;
+    m_movieTitle = movieTitle;
+    m_movieYear = movieYear;
     m_found = 0;
     if (IsRunning())
       StopThread();
@@ -137,13 +126,18 @@ int CVideoInfoDownloader::FindMovie(const CStdString &strMovie,
   }
 
   // unthreaded
-  int success = InternalFindMovie(strMovie, movieList);
+  int success = InternalFindMovie(movieTitle, movieYear, movieList);
   // NOTE: this might be improved by rescraping if the match quality isn't high?
   if (success == 1 && movieList.empty())
   { // no results. try without cleaning chars like '.' and '_'
-    success = InternalFindMovie(strMovie, movieList, false);
+    success = InternalFindMovie(movieTitle, movieYear, movieList, false);
   }
   return success;
+}
+
+bool CVideoInfoDownloader::GetArtwork(CVideoInfoTag &details)
+{
+  return m_info->GetArtwork(*m_http, details);
 }
 
 bool CVideoInfoDownloader::GetDetails(const CScraperUrl &url,
@@ -178,7 +172,7 @@ bool CVideoInfoDownloader::GetDetails(const CScraperUrl &url,
     return true;
   }
   else  // unthreaded
-    return m_info->GetVideoDetails(m_http, url, true/*fMovie*/, movieDetails);
+    return m_info->GetVideoDetails(*m_http, url, true/*fMovie*/, movieDetails);
 }
 
 bool CVideoInfoDownloader::GetEpisodeDetails(const CScraperUrl &url,
@@ -213,7 +207,7 @@ bool CVideoInfoDownloader::GetEpisodeDetails(const CScraperUrl &url,
     return true;
   }
   else  // unthreaded
-    return m_info->GetVideoDetails(m_http, url, false/*fMovie*/, movieDetails);
+    return m_info->GetVideoDetails(*m_http, url, false/*fMovie*/, movieDetails);
 }
 
 bool CVideoInfoDownloader::GetEpisodeList(const CScraperUrl& url,
@@ -248,14 +242,14 @@ bool CVideoInfoDownloader::GetEpisodeList(const CScraperUrl& url,
     return true;
   }
   else  // unthreaded
-    return !(movieDetails = m_info->GetEpisodeList(m_http, url)).empty();
+    return !(movieDetails = m_info->GetEpisodeList(*m_http, url)).empty();
 }
 
 void CVideoInfoDownloader::CloseThread()
 {
-  m_http.Cancel();
+  m_http->Cancel();
   StopThread();
-  m_http.Reset();
+  m_http->Reset();
   m_state = DO_NOTHING;
   m_found = 0;
 }

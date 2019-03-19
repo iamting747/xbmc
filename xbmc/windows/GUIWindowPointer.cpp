@@ -1,54 +1,41 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIWindowPointer.h"
-#include "input/MouseStat.h"
-#include "windowing/WindowingFactory.h"
-#include <climits>
+#include "input/mouse/MouseStat.h"
+#include "input/InputManager.h"
+#include "ServiceBroker.h"
+#include "windowing/WinSystem.h"
+
 #define ID_POINTER 10
 
 CGUIWindowPointer::CGUIWindowPointer(void)
-    : CGUIDialog(WINDOW_DIALOG_POINTER, "Pointer.xml")
+  : CGUIDialog(WINDOW_DIALOG_POINTER, "Pointer.xml", DialogModalityType::MODELESS)
 {
   m_pointer = 0;
-  m_loadOnDemand = false;
+  m_loadType = LOAD_ON_GUI_INIT;
   m_needsScaling = false;
   m_active = false;
-  m_renderOrder = INT_MAX - 1;
+  m_renderOrder = RENDER_ORDER_WINDOW_POINTER;
 }
 
-CGUIWindowPointer::~CGUIWindowPointer(void)
-{
-}
+CGUIWindowPointer::~CGUIWindowPointer(void) = default;
 
 void CGUIWindowPointer::SetPointer(int pointer)
 {
   if (m_pointer == pointer) return;
   // set the new pointer visible
-  CGUIControl *pControl = (CGUIControl *)GetControl(pointer);
+  CGUIControl *pControl = GetControl(pointer);
   if (pControl)
   {
     pControl->SetVisible(true);
     // disable the old pointer
-    pControl = (CGUIControl *)GetControl(m_pointer);
+    pControl = GetControl(m_pointer);
     if (pControl) pControl->SetVisible(false);
     // set pointer to the new one
     m_pointer = pointer;
@@ -57,10 +44,10 @@ void CGUIWindowPointer::SetPointer(int pointer)
 
 void CGUIWindowPointer::UpdateVisibility()
 {
-  if(g_Windowing.HasCursor())
+  if(CServiceBroker::GetWinSystem()->HasCursor())
   {
-    if (g_Mouse.IsActive())
-      Show();
+    if (CServiceBroker::GetInputManager().IsMouseActive())
+      Open();
     else
       Close();
   }
@@ -76,18 +63,19 @@ void CGUIWindowPointer::OnWindowLoaded()
   CGUIWindow::OnWindowLoaded();
   DynamicResourceAlloc(false);
   m_pointer = 0;
-  m_renderOrder = INT_MAX - 1;
+  m_renderOrder = RENDER_ORDER_WINDOW_POINTER;
 }
 
 void CGUIWindowPointer::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
-  bool active = g_Mouse.IsActive();
+  bool active = CServiceBroker::GetInputManager().IsMouseActive();
   if (active != m_active)
   {
     MarkDirtyRegion();
     m_active = active;
   }
-  SetPosition((float)g_Mouse.GetX(), (float)g_Mouse.GetY());
-  SetPointer(g_Mouse.GetState());
+  MousePosition pos = CServiceBroker::GetInputManager().GetMousePosition();
+  SetPosition((float)pos.x, (float)pos.y);
+  SetPointer(CServiceBroker::GetInputManager().GetMouseState());
   return CGUIWindow::Process(currentTime, dirtyregions);
 }

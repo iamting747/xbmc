@@ -1,46 +1,32 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "PeripheralHID.h"
 #include "utils/log.h"
-#include "settings/Settings.h"
 #include "guilib/LocalizeStrings.h"
-#include "input/ButtonTranslator.h"
+#include "input/InputManager.h"
+#include "peripherals/Peripherals.h"
 
 using namespace PERIPHERALS;
-using namespace std;
 
-CPeripheralHID::CPeripheralHID(const PeripheralType type, const PeripheralBusType busType, const CStdString &strLocation, const CStdString &strDeviceName, int iVendorId, int iProductId) :
-  CPeripheral(type, busType, strLocation, strDeviceName.IsEmpty() ? g_localizeStrings.Get(35001) : strDeviceName, iVendorId, iProductId),
-  m_bInitialised(false)
+CPeripheralHID::CPeripheralHID(CPeripherals& manager, const PeripheralScanResult& scanResult, CPeripheralBus* bus) :
+  CPeripheral(manager, scanResult, bus)
 {
+  m_strDeviceName = scanResult.m_strDeviceName.empty() ? g_localizeStrings.Get(35001) : scanResult.m_strDeviceName;
   m_features.push_back(FEATURE_HID);
 }
 
 CPeripheralHID::~CPeripheralHID(void)
 {
-  if (!m_strKeymap.IsEmpty() && !GetSettingBool("do_not_use_custom_keymap"))
+  if (!m_strKeymap.empty() && !GetSettingBool("do_not_use_custom_keymap"))
   {
     CLog::Log(LOGDEBUG, "%s - switching active keymapping to: default", __FUNCTION__);
-    CButtonTranslator::GetInstance().RemoveDevice(m_strKeymap);
+    m_manager.GetInputManager().RemoveKeymap(m_strKeymap);
   }
 }
 
@@ -53,27 +39,27 @@ bool CPeripheralHID::InitialiseFeature(const PeripheralFeature feature)
     if (HasSetting("keymap"))
       m_strKeymap = GetSettingString("keymap");
 
-    if (m_strKeymap.IsEmpty())
+    if (m_strKeymap.empty())
     {
-      m_strKeymap.Format("v%sp%s", VendorIdAsString(), ProductIdAsString());
+      m_strKeymap = StringUtils::Format("v%sp%s", VendorIdAsString(), ProductIdAsString());
       SetSetting("keymap", m_strKeymap);
     }
 
     if (!IsSettingVisible("keymap"))
       SetSettingVisible("do_not_use_custom_keymap", false);
 
-    if (!m_strKeymap.IsEmpty())
+    if (!m_strKeymap.empty())
     {
       bool bKeymapEnabled(!GetSettingBool("do_not_use_custom_keymap"));
       if (bKeymapEnabled)
       {
         CLog::Log(LOGDEBUG, "%s - adding keymapping for: %s", __FUNCTION__, m_strKeymap.c_str());
-        CButtonTranslator::GetInstance().AddDevice(m_strKeymap);
+        m_manager.GetInputManager().AddKeymap(m_strKeymap);
       }
       else if (!bKeymapEnabled)
       {
         CLog::Log(LOGDEBUG, "%s - removing keymapping for: %s", __FUNCTION__, m_strKeymap.c_str());
-        CButtonTranslator::GetInstance().RemoveDevice(m_strKeymap);
+        m_manager.GetInputManager().RemoveKeymap(m_strKeymap);
       }
     }
 
@@ -83,9 +69,9 @@ bool CPeripheralHID::InitialiseFeature(const PeripheralFeature feature)
   return CPeripheral::InitialiseFeature(feature);
 }
 
-void CPeripheralHID::OnSettingChanged(const CStdString &strChangedSetting)
+void CPeripheralHID::OnSettingChanged(const std::string &strChangedSetting)
 {
-  if (m_bInitialised && ((strChangedSetting.Equals("keymap") && !GetSettingBool("do_not_use_custom_keymap")) || strChangedSetting.Equals("keymap_enabled")))
+  if (m_bInitialised && ((StringUtils::EqualsNoCase(strChangedSetting, "keymap") && !GetSettingBool("do_not_use_custom_keymap")) || StringUtils::EqualsNoCase(strChangedSetting, "keymap_enabled")))
   {
     m_bInitialised = false;
     InitialiseFeature(FEATURE_HID);

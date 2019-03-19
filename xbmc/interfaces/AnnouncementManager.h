@@ -1,43 +1,68 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
+
+#include <vector>
+#include <list>
 
 #include "IAnnouncer.h"
 #include "FileItem.h"
 #include "threads/CriticalSection.h"
-#include <vector>
+#include "threads/Thread.h"
+#include "threads/Event.h"
+#include "utils/Variant.h"
+
+class CVariant;
 
 namespace ANNOUNCEMENT
 {
-  class CAnnouncementManager
+  class CAnnouncementManager : public CThread
   {
   public:
-    static void AddAnnouncer(IAnnouncer *listener);
-    static void RemoveAnnouncer(IAnnouncer *listener);
-    static void Announce(AnnouncementFlag flag, const char *sender, const char *message);
-    static void Announce(AnnouncementFlag flag, const char *sender, const char *message, CVariant &data);
-    static void Announce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item);
-    static void Announce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item, CVariant &data);
+    CAnnouncementManager();
+    ~CAnnouncementManager() override;
+
+    void Start();
+    void Deinitialize();
+
+    void AddAnnouncer(IAnnouncer *listener);
+    void RemoveAnnouncer(IAnnouncer *listener);
+
+    void Announce(AnnouncementFlag flag, const char *sender, const char *message);
+    void Announce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data);
+    void Announce(AnnouncementFlag flag, const char *sender, const char *message,
+        const std::shared_ptr<const CFileItem>& item);
+    void Announce(AnnouncementFlag flag, const char *sender, const char *message,
+        const std::shared_ptr<const CFileItem>& item, const CVariant &data);
+
+  protected:
+    void Process() override;
+    void DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item, const CVariant &data);
+    void DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data);
+
+    struct CAnnounceData
+    {
+      AnnouncementFlag flag;
+      std::string sender;
+      std::string message;
+      CFileItemPtr item;
+      CVariant data;
+    };
+    std::list<CAnnounceData> m_announcementQueue;
+    CEvent m_queueEvent;
+
   private:
-    static std::vector<IAnnouncer *> m_announcers;
-    static CCriticalSection m_critSection;
+    CAnnouncementManager(const CAnnouncementManager&) = delete;
+    CAnnouncementManager const& operator=(CAnnouncementManager const&) = delete;
+
+    CCriticalSection m_announcersCritSection;
+    CCriticalSection m_queueCritSection;
+    std::vector<IAnnouncer *> m_announcers;
   };
 }

@@ -1,139 +1,89 @@
-#pragma once
 /*
-*      Copyright (C) 2005-2009 Team XBMC
-*      http://www.xbmc.org
-*
-*  This Program is free software; you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation; either version 2, or (at your option)
-*  any later version.
-*
-*  This Program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-*  GNU General Public License for more details.
-*
-*  You should have received a copy of the GNU General Public License
-*  along with XBMC; see the file COPYING.  If not, write to
-*  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
-*  http://www.gnu.org/copyleft/gpl.html
-*
-*/
-#include "boost/shared_ptr.hpp"
-#include "utils/StdString.h"
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
 
-#include <boost/enable_shared_from_this.hpp>
+#pragma once
 
+#include "AddonInfo.h"
+
+#include <memory>
 #include <set>
-#include <map>
 
 class TiXmlElement;
 
 namespace ADDON
 {
-  typedef enum
-  {
-    ADDON_UNKNOWN,
-    ADDON_VIZ,
-    ADDON_SKIN,
-    ADDON_PVRDLL,
-    ADDON_SCRIPT,
-    ADDON_SCRIPT_WEATHER,
-    ADDON_SCRIPT_SUBTITLES,
-    ADDON_SCRIPT_LYRICS,
-    ADDON_SCRAPER_ALBUMS,
-    ADDON_SCRAPER_ARTISTS,
-    ADDON_SCRAPER_MOVIES,
-    ADDON_SCRAPER_MUSICVIDEOS,
-    ADDON_SCRAPER_TVSHOWS,
-    ADDON_SCREENSAVER,
-    ADDON_PLUGIN,
-    ADDON_REPOSITORY,
-    ADDON_WEB_INTERFACE,
-    ADDON_SERVICE,
-    ADDON_VIDEO, // virtual addon types
-    ADDON_AUDIO,
-    ADDON_IMAGE,
-    ADDON_EXECUTABLE,
-    ADDON_VIZ_LIBRARY, // add noninstallable after this and installable before
-    ADDON_SCRAPER_LIBRARY,
-    ADDON_SCRIPT_LIBRARY,
-    ADDON_SCRIPT_MODULE
-  } TYPE;
-
   class IAddon;
-  typedef boost::shared_ptr<IAddon> AddonPtr;
-  class CVisualisation;
-  typedef boost::shared_ptr<CVisualisation> VizPtr;
+  typedef std::shared_ptr<IAddon> AddonPtr;
+  class CInstanceVisualization;
+  typedef std::shared_ptr<CInstanceVisualization> VizPtr;
   class CSkinInfo;
-  typedef boost::shared_ptr<CSkinInfo> SkinPtr;
+  typedef std::shared_ptr<CSkinInfo> SkinPtr;
   class CPluginSource;
-  typedef boost::shared_ptr<CPluginSource> PluginPtr;
+  typedef std::shared_ptr<CPluginSource> PluginPtr;
 
   class CAddonMgr;
-  class AddonVersion;
-  typedef std::map<CStdString, std::pair<const AddonVersion, bool> > ADDONDEPS;
-  typedef std::map<CStdString, CStdString> InfoMap;
-  class AddonProps;
+  class CAddonSettings;
 
-  class IAddon : public boost::enable_shared_from_this<IAddon>
+  class IAddon : public std::enable_shared_from_this<IAddon>
   {
   public:
-    virtual ~IAddon() {};
-    virtual AddonPtr Clone(const AddonPtr& self) const =0;
+    virtual ~IAddon() = default;
     virtual TYPE Type() const =0;
+    virtual TYPE FullType() const =0;
     virtual bool IsType(TYPE type) const =0;
-    virtual AddonProps Props() const =0;
-    virtual AddonProps& Props() =0;
-    virtual const CStdString ID() const =0;
-    virtual const CStdString Name() const =0;
-    virtual bool Enabled() const =0;
+    virtual std::string ID() const =0;
+    virtual std::string Name() const =0;
     virtual bool IsInUse() const =0;
-    virtual const AddonVersion Version() const =0;
-    virtual const AddonVersion MinVersion() const =0;
-    virtual const CStdString Summary() const =0;
-    virtual const CStdString Description() const =0;
-    virtual const CStdString Path() const =0;
-    virtual const CStdString Profile() const =0;
-    virtual const CStdString LibPath() const =0;
-    virtual const CStdString ChangeLog() const =0;
-    virtual const CStdString FanArt() const =0;
-    virtual const CStdString Author() const =0;
-    virtual const CStdString Icon() const =0;
-    virtual int  Stars() const =0;
-    virtual const CStdString Disclaimer() const =0;
+    virtual AddonVersion Version() const =0;
+    virtual AddonVersion MinVersion() const =0;
+    virtual std::string Summary() const =0;
+    virtual std::string Description() const =0;
+    virtual std::string Path() const =0;
+    virtual std::string Profile() const =0;
+    virtual std::string LibPath() const =0;
+    virtual std::string ChangeLog() const =0;
+    virtual std::string FanArt() const =0;
+    virtual ArtMap Art() const =0;
+    virtual std::vector<std::string> Screenshots() const =0;
+    virtual std::string Author() const =0;
+    virtual std::string Icon() const =0;
+    virtual std::string Disclaimer() const =0;
+    virtual std::string Broken() const =0;
+    virtual CDateTime InstallDate() const =0;
+    virtual CDateTime LastUpdated() const =0;
+    virtual CDateTime LastUsed() const =0;
+    virtual std::string Origin() const =0;
+    virtual uint64_t PackageSize() const =0;
     virtual const InfoMap &ExtraInfo() const =0;
     virtual bool HasSettings() =0;
     virtual void SaveSettings() =0;
-    virtual void UpdateSetting(const CStdString& key, const CStdString& value) =0;
-    virtual CStdString GetSetting(const CStdString& key) =0;
-    virtual TiXmlElement* GetSettingsXML() =0;
-    virtual CStdString GetString(uint32_t id) =0;
-    virtual const ADDONDEPS &GetDeps() const =0;
+    virtual void UpdateSetting(const std::string& key, const std::string& value) =0;
+    virtual bool UpdateSettingBool(const std::string& key, bool value) = 0;
+    virtual bool UpdateSettingInt(const std::string& key, int value) = 0;
+    virtual bool UpdateSettingNumber(const std::string& key, double value) = 0;
+    virtual bool UpdateSettingString(const std::string& key, const std::string& value) = 0;
+    virtual std::string GetSetting(const std::string& key) =0;
+    virtual bool GetSettingBool(const std::string& key, bool& value) = 0;
+    virtual bool GetSettingInt(const std::string& key, int& value) = 0;
+    virtual bool GetSettingNumber(const std::string& key, double& value) = 0;
+    virtual bool GetSettingString(const std::string& key, std::string& value) = 0;
+    virtual CAddonSettings* GetSettings() const =0;
+    virtual const std::vector<DependencyInfo> &GetDependencies() const =0;
+    virtual AddonVersion GetDependencyVersion(const std::string &dependencyID) const =0;
     virtual bool MeetsVersion(const AddonVersion &version) const =0;
     virtual bool ReloadSettings() =0;
+    virtual AddonPtr GetRunningInstance() const=0;
+    virtual void OnPreInstall() =0;
+    virtual void OnPostInstall(bool update, bool modal) =0;
+    virtual void OnPreUnInstall() =0;
+    virtual void OnPostUnInstall() =0;
 
-  protected:
-    virtual const AddonPtr Parent() const =0;
-    virtual bool LoadSettings(bool bForce = false) =0;
-
-  private:
-    friend class CAddonMgr;
-    virtual bool IsAddonLibrary() =0;
-    virtual void Enable() =0;
-    virtual void Disable() =0;
-    virtual bool LoadStrings() =0;
-    virtual void ClearStrings() =0;
+    // Derived property
+    bool IsBroken() const { return !Broken().empty(); }
   };
-
-  // some utilitiy methods
-
-  /**
-   * This function will extract the Addon's currently assigned xbmc.python
-   * API version. If addon is NULL, or there is no xbmc.python dependency defined,
-   * then the version is assumed to be "1.0"
-   */
-  CStdString GetXbmcApiVersionDependency(ADDON::AddonPtr addon);
-
 };
-

@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "MusicDatabaseFile.h"
@@ -25,28 +12,23 @@
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 
-#include <sys/stat.h>
-
 using namespace XFILE;
 
-CMusicDatabaseFile::CMusicDatabaseFile(void)
-{
-}
+CMusicDatabaseFile::CMusicDatabaseFile(void) = default;
 
 CMusicDatabaseFile::~CMusicDatabaseFile(void)
 {
   Close();
 }
 
-CStdString CMusicDatabaseFile::TranslateUrl(const CURL& url)
+std::string CMusicDatabaseFile::TranslateUrl(const CURL& url)
 {
   CMusicDatabase musicDatabase;
   if (!musicDatabase.Open())
     return "";
 
-  CStdString strFileName=URIUtils::GetFileName(url.Get());
-  CStdString strExtension;
-  URIUtils::GetExtension(strFileName, strExtension);
+  std::string strFileName=URIUtils::GetFileName(url.Get());
+  std::string strExtension = URIUtils::GetExtension(strFileName);
   URIUtils::RemoveExtension(strFileName);
 
   if (!StringUtils::IsNaturalNumber(strFileName))
@@ -55,13 +37,11 @@ CStdString CMusicDatabaseFile::TranslateUrl(const CURL& url)
   long idSong=atol(strFileName.c_str());
 
   CSong song;
-  if (!musicDatabase.GetSongById(idSong, song))
+  if (!musicDatabase.GetSong(idSong, song))
     return "";
 
-  CStdString strExtensionFromDb;
-  URIUtils::GetExtension(song.strFileName, strExtensionFromDb);
-
-  if (!strExtensionFromDb.Equals(strExtension))
+  StringUtils::ToLower(strExtension);
+  if (!URIUtils::HasExtension(song.strFileName, strExtension))
     return "";
 
   return song.strFileName;
@@ -74,7 +54,7 @@ bool CMusicDatabaseFile::Open(const CURL& url)
 
 bool CMusicDatabaseFile::Exists(const CURL& url)
 {
-  return !TranslateUrl(url).IsEmpty();
+  return !TranslateUrl(url).empty();
 }
 
 int CMusicDatabaseFile::Stat(const CURL& url, struct __stat64* buffer)
@@ -82,7 +62,7 @@ int CMusicDatabaseFile::Stat(const CURL& url, struct __stat64* buffer)
   return m_file.Stat(TranslateUrl(url), buffer);
 }
 
-unsigned int CMusicDatabaseFile::Read(void* lpBuf, int64_t uiBufSize)
+ssize_t CMusicDatabaseFile::Read(void* lpBuf, size_t uiBufSize)
 {
   return m_file.Read(lpBuf, uiBufSize);
 }

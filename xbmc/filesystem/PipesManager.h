@@ -1,61 +1,48 @@
 /*
  * Many concepts and protocol are taken from
  * the Boxee project. http://www.boxee.tv
- * 
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#ifndef __PIPES_MANAGER__H__
-#define __PIPES_MANAGER__H__
+#pragma once
 
 #include "threads/CriticalSection.h"
 #include "threads/Event.h"
-#include "utils/StdString.h"
 #include "utils/RingBuffer.h"
 
 #include <map>
+#include <string>
+#include <vector>
 
 #define PIPE_DEFAULT_MAX_SIZE (6 * 1024 * 1024)
 
 namespace XFILE
 {
- 
+
 class IPipeListener
 {
 public:
-  virtual ~IPipeListener() {}
+  virtual ~IPipeListener() = default;
   virtual void OnPipeOverFlow() = 0;
   virtual void OnPipeUnderFlow() = 0;
 };
-  
+
 class Pipe
   {
   public:
-    Pipe(const CStdString &name, int nMaxSize = PIPE_DEFAULT_MAX_SIZE ); 
+    Pipe(const std::string &name, int nMaxSize = PIPE_DEFAULT_MAX_SIZE );
     virtual ~Pipe();
-    const CStdString &GetName();
-    
+    const std::string &GetName();
+
     void AddRef();
-    void DecRef();   // a pipe does NOT delete itself with ref-count 0. 
-    int  RefCount(); 
-    
+    void DecRef();   // a pipe does NOT delete itself with ref-count 0.
+    int  RefCount();
+
     bool IsEmpty();
 
     /**
@@ -77,60 +64,57 @@ class Pipe
     bool Write(const char *buf, int nSize, int nWaitMillis = -1);
 
     void Flush();
-    
+
     void CheckStatus();
     void Close();
-    
+
     void AddListener(IPipeListener *l);
     void RemoveListener(IPipeListener *l);
-    
+
     void SetEof();
     bool IsEof();
-    
+
     int	GetAvailableRead();
-    void SetOpenThreashold(int threashold);
+    void SetOpenThreshold(int threshold);
 
   protected:
-    
+
     bool        m_bOpen;
     bool        m_bReadyForRead;
 
     bool        m_bEof;
     CRingBuffer m_buffer;
-    CStdString  m_strPipeName;  
+    std::string  m_strPipeName;
     int         m_nRefCount;
-    int         m_nOpenThreashold;
+    int         m_nOpenThreshold;
 
     CEvent     m_readEvent;
     CEvent     m_writeEvent;
-    
+
     std::vector<XFILE::IPipeListener *> m_listeners;
-    
+
     CCriticalSection m_lock;
   };
 
-  
+
 class PipesManager
 {
 public:
   virtual ~PipesManager();
   static PipesManager &GetInstance();
 
-  CStdString   GetUniquePipeName();
-  XFILE::Pipe *CreatePipe(const CStdString &name="", int nMaxPipeSize = PIPE_DEFAULT_MAX_SIZE);
-  XFILE::Pipe *OpenPipe(const CStdString &name);
+  std::string   GetUniquePipeName();
+  XFILE::Pipe *CreatePipe(const std::string &name="", int nMaxPipeSize = PIPE_DEFAULT_MAX_SIZE);
+  XFILE::Pipe *OpenPipe(const std::string &name);
   void         ClosePipe(XFILE::Pipe *pipe);
-  bool         Exists(const CStdString &name);
-  
+  bool         Exists(const std::string &name);
+
 protected:
-  PipesManager();
-  int    m_nGenIdHelper;
-  std::map<CStdString, XFILE::Pipe *> m_pipes;  
-  
+  int    m_nGenIdHelper = 1;
+  std::map<std::string, XFILE::Pipe *> m_pipes;
+
   CCriticalSection m_lock;
 };
 
 }
-
-#endif
 

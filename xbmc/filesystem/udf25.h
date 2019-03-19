@@ -1,28 +1,15 @@
-#ifndef UDF25_H
-#define UDF25_H
 /*
- *      Copyright (C) 2010 Team Boxee
+ *  Copyright (C) 2010 Team Boxee
  *      http://www.boxee.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- *
- * Note: parts of this code comes from libdvdread.
- * Jorgen Lundman did the necessary modifications to support udf 2.5
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "File.h"
 
@@ -45,6 +32,7 @@ struct Partition {
   uint32_t AccessType;
   uint32_t Start;
   uint32_t Length;
+  uint32_t Start_Correction;
 };
 
 struct AD {
@@ -55,21 +43,28 @@ struct AD {
 };
 
 /* Previously dvdread would assume files only had one AD chain, and since they
- * are 1GB or less, this is most problably true. However, now we handle chains
+ * are 1GB or less, this is most probably true. However, now we handle chains
  * for large files. ECMA_167 does not specify the maximum number of chains, is
  * it as many as can fit in a 2048 block (minus ID 266 size), or some other
  * limit. For now, I have assumed that;
  * a 4.4GB file uses 5 AD chains. A BluRay disk can store 50GB of data, so the
  * largest file should be 50 GB. So the maximum number of chains should be
  * around 62.
+ *
+ * However, with AD chain extensions there has been examples of chains up to
+ * around 1600 entries.
  */
 
-#define UDF_MAX_AD_CHAINS 50
+#define UDF_MAX_AD_CHAINS 2000
 
 struct FileAD {
     uint64_t Length;
     uint32_t num_AD;
+    uint16_t Partition;
     uint32_t Partition_Start;
+    uint32_t Partition_Start_Correction;
+    uint8_t  Type;
+    uint16_t Flags;
     struct AD AD_chain[UDF_MAX_AD_CHAINS];
 };
 
@@ -98,7 +93,6 @@ struct lbudf {
 struct icbmap {
   uint32_t lbn;
   struct FileAD  file;
-  uint8_t filetype;
 };
 
 struct udf_cache {
@@ -180,10 +174,11 @@ public:
   udf25( );
   virtual ~udf25( );
 
-  DWORD SetFilePointer(HANDLE hFile, LONG lDistanceToMove, PLONG lpDistanceToMoveHigh, DWORD dwMoveMethod );
+  DWORD SetFilePointer(HANDLE hFile, long lDistanceToMove, long* lpDistanceToMoveHigh, DWORD dwMoveMethod );
   int64_t GetFileSize(HANDLE hFile);
   int64_t GetFilePosition(HANDLE hFile);
   int64_t Seek(HANDLE hFile, int64_t lOffset, int whence);
+  bool   Open(const char *isofile);
   HANDLE OpenFile( const char* filename );
   long ReadFile(HANDLE fd, unsigned char *pBuffer, long lSize);
   void CloseFile(HANDLE hFile);
@@ -199,7 +194,6 @@ public:
 private:
   UDF_FILE UDFFindFile( const char* filename, uint64_t *filesize );
   int UDFScanDirX( udf_dir_t *dirp );
-  void UDFFreeFile(UDF_FILE file);
   int DVDUDFCacheLevel(int level);
   void* GetUDFCacheHandle();
   void SetUDFCacheHandle(void *cache);
@@ -207,9 +201,9 @@ private:
   int UDFFindPartition( int partnum, struct Partition *part );
   int UDFGetAVDP( struct avdp_t *avdp);
   int DVDReadLBUDF( uint32_t lb_number, size_t block_count, unsigned char *data, int encrypted );
-  int UDFReadBlocksRaw( uint32_t lb_number, size_t block_count, unsigned char *data, int encrypted );
-  int UDFMapICB( struct AD ICB, uint8_t *FileType, struct Partition *partition, struct FileAD *File );
-  int UDFScanDir( struct FileAD Dir, char *FileName, struct Partition *partition, struct AD *FileICB, int cache_file_info);
+  int ReadAt( int64_t pos, size_t len, unsigned char *data );
+  int UDFMapICB( struct AD ICB, struct Partition *partition, struct FileAD *File );
+  int UDFScanDir( const struct FileAD& Dir, char *FileName, struct Partition *partition, struct AD *FileICB, int cache_file_info);
   int SetUDFCache(UDFCacheType type, uint32_t nr, void *data);
 protected:
     /* Filesystem cache */
@@ -218,4 +212,3 @@ protected:
   XFILE::CFile* m_fp;
 };
 
-#endif

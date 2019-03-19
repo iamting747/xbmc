@@ -1,100 +1,73 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
-  #include "config.h"
-#endif
-#include "system.h"
+#include "network/Network.h"
 #include "FileFactory.h"
-#include "HDFile.h"
+#ifdef TARGET_POSIX
+#include "platform/posix/filesystem/PosixFile.h"
+#elif defined(TARGET_WINDOWS)
+#include "platform/win32/filesystem/Win32File.h"
+#ifdef TARGET_WINDOWS_STORE
+#include "platform/win10/filesystem/WinLibraryFile.h"
+#endif
+#endif // TARGET_WINDOWS
 #include "CurlFile.h"
+#include "DAVFile.h"
 #include "ShoutcastFile.h"
-#include "LastFMFile.h"
-#include "FileReaderFile.h"
 #ifdef HAS_FILESYSTEM_SMB
-#ifdef _WIN32
-#include "windows/WINFileSmb.h"
+#ifdef TARGET_WINDOWS
+#include "platform/win32/filesystem/Win32SMBFile.h"
 #else
-#include "SmbFile.h"
+#include "platform/posix/filesystem/SMBFile.h"
 #endif
 #endif
-#ifdef HAS_FILESYSTEM_CDDA
 #include "CDDAFile.h"
-#endif
-#ifdef HAS_FILESYSTEM
 #include "ISOFile.h"
-#ifdef HAS_FILESYSTEM_RTV
-#include "RTVFile.h"
+#if defined(TARGET_ANDROID)
+#include "platform/android/filesystem/APKFile.h"
 #endif
-#ifdef HAS_FILESYSTEM_DAAP
-#include "DAAPFile.h"
-#endif
-#endif
-#ifdef HAS_FILESYSTEM_SAP
-#include "SAPFile.h"
-#endif
-#ifdef HAS_FILESYSTEM_VTP
-#include "VTPFile.h"
-#endif
+#include "XbtFile.h"
 #include "ZipFile.h"
-#ifdef HAS_FILESYSTEM_RAR
-#include "RarFile.h"
-#endif
-#ifdef HAS_FILESYSTEM_SFTP
-#include "SFTPFile.h"
-#endif
 #ifdef HAS_FILESYSTEM_NFS
 #include "NFSFile.h"
 #endif
-#ifdef HAS_FILESYSTEM_AFP
-#include "AFPFile.h"
+#if defined(TARGET_ANDROID)
+#include "platform/android/filesystem/AndroidAppFile.h"
 #endif
+#ifdef HAS_UPNP
 #include "UPnPFile.h"
-#include "PipesManager.h"
+#endif
+#ifdef HAVE_LIBBLURAY
+#include "BlurayFile.h"
+#endif
 #include "PipeFile.h"
 #include "MusicDatabaseFile.h"
+#include "VideoDatabaseFile.h"
 #include "SpecialProtocolFile.h"
 #include "MultiPathFile.h"
-#include "TuxBoxFile.h"
 #include "UDFFile.h"
-#include "MythFile.h"
-#include "HDHomeRunFile.h"
-#include "SlingboxFile.h"
 #include "ImageFile.h"
-#include "Application.h"
+#include "ResourceFile.h"
 #include "URL.h"
 #include "utils/log.h"
+#include "network/WakeOnAccess.h"
+#include "utils/StringUtils.h"
+#include "ServiceBroker.h"
+#include "addons/VFSEntry.h"
 
+using namespace ADDON;
 using namespace XFILE;
 
-CFileFactory::CFileFactory()
-{
-}
+CFileFactory::CFileFactory() = default;
 
-CFileFactory::~CFileFactory()
-{
-}
+CFileFactory::~CFileFactory() = default;
 
-IFile* CFileFactory::CreateLoader(const CStdString& strFileName)
+IFile* CFileFactory::CreateLoader(const std::string& strFileName)
 {
   CURL url(strFileName);
   return CreateLoader(url);
@@ -102,84 +75,83 @@ IFile* CFileFactory::CreateLoader(const CStdString& strFileName)
 
 IFile* CFileFactory::CreateLoader(const CURL& url)
 {
-  CStdString strProtocol = url.GetProtocol();
-  strProtocol.MakeLower();
+  if (!CWakeOnAccess::GetInstance().WakeUpHost(url))
+    return NULL;
 
-  if (strProtocol == "zip") return new CZipFile();
-  else if (strProtocol == "rar")
+  std::string strProtocol = url.GetProtocol();
+  if (!strProtocol.empty() && CServiceBroker::IsBinaryAddonCacheUp())
   {
-#ifdef HAS_FILESYSTEM_RAR
-    return new CRarFile();
-#else
-    CLog::Log(LOGWARNING, "%s - Compiled without non-free, rar support is disabled", __FUNCTION__);
-#endif
+    StringUtils::ToLower(strProtocol);
+    for (const auto& vfsAddon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
+    {
+      if (vfsAddon->HasFiles() && vfsAddon->GetProtocols().find(strProtocol) != std::string::npos)
+        return new CVFSEntryIFileWrapper(vfsAddon);
+    }
   }
-  else if (strProtocol == "musicdb") return new CMusicDatabaseFile();
-  else if (strProtocol == "videodb") return NULL;
-  else if (strProtocol == "special") return new CSpecialProtocolFile();
-  else if (strProtocol == "multipath") return new CMultiPathFile();
-  else if (strProtocol == "image") return new CImageFile();
-  else if (strProtocol == "file" || strProtocol.IsEmpty()) return new CHDFile();
-  else if (strProtocol == "filereader") return new CFileReaderFile();
-#if defined(HAS_FILESYSTEM_CDDA) && defined(HAS_DVD_DRIVE)
-  else if (strProtocol == "cdda") return new CFileCDDA();
-#endif
-#ifdef HAS_FILESYSTEM
-  else if (strProtocol == "iso9660") return new CISOFile();
-#endif
-  else if(strProtocol == "udf") return new CUDFFile();
 
-  if( g_application.getNetwork().IsAvailable() )
+#if defined(TARGET_ANDROID)
+  if (url.IsProtocol("apk")) return new CAPKFile();
+#endif
+  if (url.IsProtocol("zip")) return new CZipFile();
+  else if (url.IsProtocol("xbt")) return new CXbtFile();
+  else if (url.IsProtocol("musicdb")) return new CMusicDatabaseFile();
+  else if (url.IsProtocol("videodb")) return new CVideoDatabaseFile();
+  else if (url.IsProtocol("library")) return nullptr;
+  else if (url.IsProtocol("pvr")) return nullptr;
+  else if (url.IsProtocol("special")) return new CSpecialProtocolFile();
+  else if (url.IsProtocol("multipath")) return new CMultiPathFile();
+  else if (url.IsProtocol("image")) return new CImageFile();
+#ifdef TARGET_POSIX
+  else if (url.IsProtocol("file") || url.GetProtocol().empty()) return new CPosixFile();
+#elif defined(TARGET_WINDOWS)
+  else if (url.IsProtocol("file") || url.GetProtocol().empty())
   {
-    if (strProtocol == "http"
-    ||  strProtocol == "https"
-    ||  strProtocol == "dav"
-    ||  strProtocol == "davs"
-    ||  strProtocol == "ftp"
-    ||  strProtocol == "ftpx"
-    ||  strProtocol == "ftps"
-    ||  strProtocol == "rss") return new CCurlFile();
-#ifdef HAS_FILESYSTEM_SFTP
-    else if (strProtocol == "sftp" || strProtocol == "ssh") return new CSFTPFile();
+#ifdef TARGET_WINDOWS_STORE
+    if (CWinLibraryFile::IsInAccessList(url))
+      return new CWinLibraryFile();
 #endif
-    else if (strProtocol == "shout") return new CShoutcastFile();
-    else if (strProtocol == "lastfm") return new CLastFMFile();
-    else if (strProtocol == "tuxbox") return new CTuxBoxFile();
-    else if (strProtocol == "hdhomerun") return new CHomeRunFile();
-    else if (strProtocol == "sling") return new CSlingboxFile();
-    else if (strProtocol == "myth") return new CMythFile();
-    else if (strProtocol == "cmyth") return new CMythFile();
+    return new CWin32File();
+  }
+#endif // TARGET_WINDOWS
+#if defined(HAS_DVD_DRIVE)
+  else if (url.IsProtocol("cdda")) return new CFileCDDA();
+#endif
+  else if (url.IsProtocol("iso9660")) return new CISOFile();
+  else if(url.IsProtocol("udf")) return new CUDFFile();
+#if defined(TARGET_ANDROID)
+  else if (url.IsProtocol("androidapp")) return new CFileAndroidApp();
+#endif
+  else if (url.IsProtocol("pipe")) return new CPipeFile();
+#ifdef HAVE_LIBBLURAY
+  else if (url.IsProtocol("bluray")) return new CBlurayFile();
+#endif
+  else if (url.IsProtocol("resource")) return new CResourceFile();
+#ifdef TARGET_WINDOWS_STORE
+  else if (CWinLibraryFile::IsValid(url)) return new CWinLibraryFile();
+#endif
+
+  if (url.IsProtocol("ftp")
+  ||  url.IsProtocol("ftps")
+  ||  url.IsProtocol("rss")
+  ||  url.IsProtocol("rsss")
+  ||  url.IsProtocol("http")
+  ||  url.IsProtocol("https")) return new CCurlFile();
+  else if (url.IsProtocol("dav") || url.IsProtocol("davs")) return new CDAVFile();
+  else if (url.IsProtocol("shout")) return new CShoutcastFile();
 #ifdef HAS_FILESYSTEM_SMB
-#ifdef _WIN32
-    else if (strProtocol == "smb") return new CWINFileSMB();
+#ifdef TARGET_WINDOWS
+  else if (url.IsProtocol("smb")) return new CWin32SMBFile();
 #else
-    else if (strProtocol == "smb") return new CSmbFile();
+  else if (url.IsProtocol("smb")) return new CSMBFile();
 #endif
-#endif
-#ifdef HAS_FILESYSTEM
-#ifdef HAS_FILESYSTEM_RTV
-    else if (strProtocol == "rtv") return new CRTVFile();
-#endif
-#ifdef HAS_FILESYSTEM_DAAP
-    else if (strProtocol == "daap") return new CDAAPFile();
-#endif
-#endif
-#ifdef HAS_FILESYSTEM_SAP
-    else if (strProtocol == "sap") return new CSAPFile();
-#endif
-#ifdef HAS_FILESYSTEM_VTP
-    else if (strProtocol == "vtp") return new CVTPFile();
 #endif
 #ifdef HAS_FILESYSTEM_NFS
-    else if (strProtocol == "nfs") return new CNFSFile();
+  else if (url.IsProtocol("nfs")) return new CNFSFile();
 #endif
-#ifdef HAS_FILESYSTEM_AFP
-    else if (strProtocol == "afp") return new CAFPFile();
+#ifdef HAS_UPNP
+  else if (url.IsProtocol("upnp")) return new CUPnPFile();
 #endif
-    else if (strProtocol == "pipe") return new CPipeFile();    
-    else if (strProtocol == "upnp") return new CUPnPFile();
-  }
 
-  CLog::Log(LOGWARNING, "%s - Unsupported protocol(%s) in %s", __FUNCTION__, strProtocol.c_str(), url.Get().c_str() );
+  CLog::Log(LOGWARNING, "%s - unsupported protocol(%s) in %s", __FUNCTION__, url.GetProtocol().c_str(), url.GetRedacted().c_str());
   return NULL;
 }

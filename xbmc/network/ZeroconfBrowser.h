@@ -1,31 +1,22 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <atomic>
 #include <string>
 #include <set>
 #include <vector>
 #include <map>
-#include "URL.h"
+
+#ifdef TARGET_WINDOWS
+#undef SetPort // WIN32INCLUDES this is defined as SetPortA in WinSpool.h which is being included _somewhere_
+#endif
 
 //forwards
 class CCriticalSection;
@@ -39,50 +30,57 @@ public:
     public:
       typedef std::map<std::string, std::string> tTxtRecordMap;
 
-      ZeroconfService();
-      ZeroconfService(const CStdString& fcr_name, const CStdString& fcr_type, const CStdString& fcr_domain);
+      ZeroconfService() = default;
+      ZeroconfService(const std::string& fcr_name, const std::string& fcr_type, const std::string& fcr_domain);
 
       /// easy conversion to string and back (used in czeronfdiretory to store this service)
       ///@{
-      static CStdString toPath(const ZeroconfService& fcr_service);
-      static ZeroconfService fromPath(const CStdString& fcr_path); //throws std::runtime_error on failure
+      static std::string toPath(const ZeroconfService& fcr_service);
+      static ZeroconfService fromPath(const std::string& fcr_path); //throws std::runtime_error on failure
       ///@}
 
       /// general access methods
       ///@{
-      void SetName(const CStdString& fcr_name);
-      const CStdString& GetName() const {return m_name;}
+      void SetName(const std::string& fcr_name);
+      const std::string& GetName() const {return m_name;}
 
-      void SetType(const CStdString& fcr_type);
-      const CStdString& GetType() const {return m_type;}
+      void SetType(const std::string& fcr_type);
+      const std::string& GetType() const {return m_type;}
 
-      void SetDomain(const CStdString& fcr_domain);
-      const CStdString& GetDomain() const {return m_domain;}
+      void SetDomain(const std::string& fcr_domain);
+      const std::string& GetDomain() const {return m_domain;}
       ///@}
 
       /// access methods needed during resolve
       ///@{
-      void SetIP(const CStdString& fcr_ip);
-      const CStdString& GetIP() const {return m_ip;}
+      void SetIP(const std::string& fcr_ip);
+      const std::string& GetIP() const {return m_ip;}
+
+      void SetHostname(const std::string& fcr_hostname);
+      const std::string& GetHostname() const {return m_hostname;}
 
       void SetPort(int f_port);
       int GetPort() const {return m_port;}
-    
+
       void SetTxtRecords(const tTxtRecordMap& txt_records);
       const tTxtRecordMap& GetTxtRecords() const { return m_txtrecords_map;}
       ///@}
     private:
       //3 entries below identify a service
-      CStdString m_name;
-      CStdString m_type;
-      CStdString m_domain;
+      std::string m_name;
+      std::string m_type;
+      std::string m_domain;
 
       //2 entries below store 1 ip:port pair for this service
-      CStdString m_ip;
-      int        m_port;
-      
+      std::string m_ip;
+      int        m_port = 0;
+
+      //used for mdns in case dns resolution fails
+      //we store the hostname and resolve with mdns functions again
+      std::string m_hostname;
+
       //1 entry below stores the txt-record as a key value map for this service
-      tTxtRecordMap m_txtrecords_map;    
+      tTxtRecordMap m_txtrecords_map;
   };
 
   // starts browsing
@@ -118,45 +116,45 @@ public:
 
   virtual void ProcessResults() {}
 
-protected:
-  // pure virtual methods to implement for OS specific implementations
-  virtual bool doAddServiceType(const CStdString& fcr_service_type) = 0;
-  virtual bool doRemoveServiceType(const CStdString& fcr_service_type) = 0;
-  virtual std::vector<ZeroconfService> doGetFoundServices() = 0;
-  virtual bool doResolveService(ZeroconfService& fr_service, double f_timeout) = 0;
-
-protected:
-  //singleton: we don't want to get instantiated nor copied or deleted from outside
-  CZeroconfBrowser();
-  CZeroconfBrowser(const CZeroconfBrowser&);
-  virtual ~CZeroconfBrowser();
-
-private:
   /// methods for browsing and getting results of it
   ///@{
   /// adds a service type for browsing
   /// @param fcr_service_type the service type as string, e.g. _smb._tcp.
   /// @return false if it was already there
-  bool AddServiceType(const CStdString& fcr_service_type);
+  bool AddServiceType(const std::string& fcr_service_type);
 
   /// remove the specified service from discovery
   /// @param fcr_service_type the service type as string, e.g. _smb._tcp.
   /// @return if it was not found
-  bool RemoveServiceType(const CStdString& fcr_service_type);
+  bool RemoveServiceType(const std::string& fcr_service_type);
 
+protected:
+  //singleton: we don't want to get instantiated nor copied or deleted from outside
+  CZeroconfBrowser();
+  CZeroconfBrowser(const CZeroconfBrowser&) = delete;
+  CZeroconfBrowser& operator=(const CZeroconfBrowser&) = delete;
+  virtual ~CZeroconfBrowser();
+
+  // pure virtual methods to implement for OS specific implementations
+  virtual bool doAddServiceType(const std::string& fcr_service_type) = 0;
+  virtual bool doRemoveServiceType(const std::string& fcr_service_type) = 0;
+  virtual std::vector<ZeroconfService> doGetFoundServices() = 0;
+  virtual bool doResolveService(ZeroconfService& fr_service, double f_timeout) = 0;
+
+private:
   struct ServiceInfo
   {
-    CStdString type;
+    std::string type;
   };
 
   //protects data
   CCriticalSection* mp_crit_sec;
-  typedef std::set<CStdString> tServices;
+  typedef std::set<std::string> tServices;
   tServices m_services;
-  bool m_started;
+  bool m_started = false;
 
   //protects singleton creation/destruction
-  static long sm_singleton_guard;
+  static std::atomic_flag sm_singleton_guard;
   static CZeroconfBrowser* smp_instance;
 };
 #include <iostream>

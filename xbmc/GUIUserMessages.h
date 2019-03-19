@@ -1,27 +1,15 @@
-//  GUI messages outside GuiLib
-//
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
 #pragma once
 
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
+//  GUI messages outside GuiLib
+//
 
 #include "guilib/GUIMessage.h"
 
@@ -32,8 +20,8 @@
 //  General playlist items changed
 #define GUI_MSG_PLAYLIST_CHANGED        GUI_MSG_USER + 3
 
-//  Start Slideshow in my pictures lpVoid = CStdString
-//  Param lpVoid: CStdString* that points to the Directory
+//  Start Slideshow in my pictures lpVoid = std::string
+//  Param lpVoid: std::string* that points to the Directory
 //  to start the slideshow in.
 #define GUI_MSG_START_SLIDESHOW         GUI_MSG_USER + 4
 
@@ -83,7 +71,7 @@
 #define GUI_MSG_VISUALISATION_ACTION    GUI_MSG_USER + 120 // request the vis perform an action
 #define GUI_MSG_VISUALISATION_RELOAD    GUI_MSG_USER + 121 // request the vis to reload
 
-#define GUI_MSG_VIDEO_MENU_STARTED      GUI_MSG_USER + 21 // sent by dvdplayer on entry to the menu
+#define GUI_MSG_VIDEO_MENU_STARTED      GUI_MSG_USER + 21 // sent by VideoPlayer on entry to the menu
 
 //  Message is sent by built-in function to alert the playlist window
 //  that the user has initiated Random playback
@@ -115,6 +103,10 @@
 // Message sent to tell the GUI to update a single item
 #define GUI_MSG_UPDATE_ITEM           GUI_MSG_USER + 29
 
+// Flags for GUI_MSG_UPDATE_ITEM message
+constexpr int GUI_MSG_FLAG_UPDATE_LIST = 0x00000001;
+constexpr int GUI_MSG_FLAG_FORCE_UPDATE = 0x00000002;
+
 // Message sent to tell the GUI to change view mode
 #define GUI_MSG_CHANGE_VIEW_MODE      GUI_MSG_USER + 30
 
@@ -130,3 +122,17 @@
 
 // Sent to the AddonSetting dialogs from addons if they updated a setting
 #define GUI_MSG_SETTING_UPDATED       GUI_MSG_USER + 35
+
+// Message sent to CGUIWindowSlideshow to show picture
+#define GUI_MSG_SHOW_PICTURE          GUI_MSG_USER + 36
+
+// Sent to CGUIWindowEventLog
+#define GUI_MSG_EVENT_ADDED        GUI_MSG_USER + 39
+#define GUI_MSG_EVENT_REMOVED      GUI_MSG_USER + 40
+
+// Send to RDS Radiotext handlers to inform about changed data
+#define GUI_MSG_UPDATE_RADIOTEXT      GUI_MSG_USER + 41
+
+#define GUI_MSG_PLAYBACK_ERROR        GUI_MSG_USER + 42
+#define GUI_MSG_PLAYBACK_AVCHANGE     GUI_MSG_USER + 43
+#define GUI_MSG_PLAYBACK_AVSTARTED    GUI_MSG_USER + 44

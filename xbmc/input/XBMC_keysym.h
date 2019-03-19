@@ -1,30 +1,18 @@
 /*
-    SDL - Simple DirectMedia Layer
-    Copyright (C) 1997-2009 Sam Lantinga
+ *  SDL - Simple DirectMedia Layer
+ *  Copyright (C) 1997-2009 Sam Lantinga
+ *
+ *  SPDX-License-Identifier: LGPL-2.1-or-later
+ *  See LICENSES/README.md for more information.
+ *
+ *  Sam Lantinga
+ *  slouken@libsdl.org
+ */
 
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.
-
-    You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-
-    Sam Lantinga
-    slouken@libsdl.org
-*/
-
-#ifndef XBMC_keysym_h
-#define XBMC_keysym_h
+#pragma once
 
 // The XBMC_keysym identifies a physical key on the keyboard i.e. it is
-// analogous to a scan code but is hardware independant.
+// analogous to a scan code but is hardware independent.
 // These values are bazsed on the SDL_keysym standards, see:
 //
 //   http://www.libsdl.org/tmp/SDL-1.3-docs/SDL__keysym_8h.html
@@ -140,6 +128,8 @@ typedef enum {
   XBMCK_LAUNCH_APP2          = 0xB7,
   XBMCK_LAUNCH_FILE_BROWSER  = 0xB8,
   XBMCK_LAUNCH_MEDIA_CENTER  = 0xB9,
+  XBMCK_MEDIA_REWIND         = 0xBA,
+  XBMCK_MEDIA_FASTFORWARD    = 0xBB,
 
   // Numeric keypad
   XBMCK_KP0         = 0x100,
@@ -214,6 +204,20 @@ typedef enum {
   XBMCK_POWER       = 0x140,    // Power Macintosh power key
   XBMCK_EURO        = 0x141,    // Some european keyboards
   XBMCK_UNDO        = 0x142,    // Atari keyboard has Undo
+  XBMCK_SLEEP       = 0x143,    // Sleep button on Nyxboard remote (and others?)
+  XBMCK_GUIDE       = 0x144,
+  XBMCK_SETTINGS    = 0x145,
+  XBMCK_INFO        = 0x146,
+  XBMCK_RED         = 0x147,
+  XBMCK_GREEN       = 0x148,
+  XBMCK_YELLOW      = 0x149,
+  XBMCK_BLUE        = 0x14a,
+  XBMCK_ZOOM        = 0x14b,
+  XBMCK_TEXT        = 0x14c,
+  XBMCK_FAVORITES   = 0x14d,
+  XBMCK_HOMEPAGE    = 0x14e,
+  XBMCK_CONFIG      = 0x14f,
+  XBMCK_EPG         = 0x150,
 
   // Add any other keys here
 
@@ -255,4 +259,3 @@ typedef enum {
 #define XBMCKMOD_META  (XBMCKMOD_LMETA  | XBMCKMOD_RMETA)
 #define XBMCKMOD_SUPER (XBMCKMOD_LSUPER | XBMCKMOD_RSUPER)
 
-#endif // XBMC_keysym_h

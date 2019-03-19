@@ -1,43 +1,32 @@
-#pragma once
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "IHTTPRequestHandler.h"
-#include "addons/IAddon.h"
+#pragma once
 
-class CHTTPWebinterfaceHandler : public IHTTPRequestHandler
+#include <string>
+
+#include "addons/IAddon.h"
+#include "network/httprequesthandler/HTTPFileHandler.h"
+
+class CHTTPWebinterfaceHandler : public CHTTPFileHandler
 {
 public:
-  CHTTPWebinterfaceHandler() { };
-  
-  virtual IHTTPRequestHandler* GetInstance() { return new CHTTPWebinterfaceHandler(); }
-  virtual bool CheckHTTPRequest(const HTTPRequest &request);
-  virtual int HandleHTTPRequest(const HTTPRequest &request);
+  CHTTPWebinterfaceHandler() = default;
+  ~CHTTPWebinterfaceHandler() override = default;
 
-  virtual std::string GetHTTPRedirectUrl() const { return m_url; }
-  virtual std::string GetHTTPResponseFile() const { return m_url; }
-  
+  IHTTPRequestHandler* Create(const HTTPRequest &request) const override { return new CHTTPWebinterfaceHandler(request); }
+  bool CanHandleRequest(const HTTPRequest &request) const override;
+
   static int ResolveUrl(const std::string &url, std::string &path);
   static int ResolveUrl(const std::string &url, std::string &path, ADDON::AddonPtr &addon);
+  static bool ResolveAddon(const std::string &url, ADDON::AddonPtr &addon);
+  static bool ResolveAddon(const std::string &url, ADDON::AddonPtr &addon, std::string &addonPath);
 
-private:
-  std::string m_url;
+protected:
+  explicit CHTTPWebinterfaceHandler(const HTTPRequest &request);
 };

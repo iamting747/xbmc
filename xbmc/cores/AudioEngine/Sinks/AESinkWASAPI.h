@@ -1,66 +1,53 @@
-#pragma once
 /*
-*      Copyright (C) 2010-2012 Team XBMC
-*      http://www.xbmc.org
-*
-*  This Program is free software; you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation; either version 2, or (at your option)
-*  any later version.
-*
-*  This Program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-*  GNU General Public License for more details.
-*
-*  You should have received a copy of the GNU General Public License
-*  along with XBMC; see the file COPYING.  If not, write to
-*  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
-*  http://www.gnu.org/copyleft/gpl.html
-*
-*/
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
 
-#include "../Interfaces/AESink.h"
+#pragma once
+
 #include <stdint.h>
 #include <mmdeviceapi.h>
 #include <Audioclient.h>
-#include "../Utils/AEDeviceInfo.h"
+#include "cores/AudioEngine/Interfaces/AESink.h"
+#include "cores/AudioEngine/Sinks/windows/AESinkFactoryWin.h"
+#include "cores/AudioEngine/Utils/AEDeviceInfo.h"
 
-#include "threads/CriticalSection.h"
+#include <wrl/client.h>
 
 class CAESinkWASAPI : public IAESink
 {
 public:
-    virtual const char *GetName() { return "WASAPI"; }
-
     CAESinkWASAPI();
     virtual ~CAESinkWASAPI();
 
-    virtual bool Initialize  (AEAudioFormat &format, std::string &device);
-    virtual void Deinitialize();
-    virtual bool IsCompatible(const AEAudioFormat format, const std::string device);
+    static void Register();
+    static IAESink* Create(std::string &device, AEAudioFormat &desiredFormat);
+    static void EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList, bool force = false);
 
-    virtual double       GetDelay                    ();
-    virtual double       GetCacheTime                ();
-    virtual double       GetCacheTotal               ();
-    virtual unsigned int AddPackets                  (uint8_t *data, unsigned int frames);
-    static  void         EnumerateDevicesEx          (AEDeviceInfoList &deviceInfoList);
+    // IAESink overrides
+    const char *GetName() override { return "WASAPI"; }
+    bool Initialize(AEAudioFormat &format, std::string &device) override;
+    void Deinitialize() override;
+    void GetDelay(AEDelayStatus& status) override;
+    double GetCacheTotal() override;
+    unsigned int AddPackets(uint8_t **data, unsigned int frames, unsigned int offset) override;
+    void Drain() override;
+
 private:
-    bool         InitializeExclusive(AEAudioFormat &format);
-    void         AEChannelsFromSpeakerMask(DWORD speakers);
-    DWORD        SpeakerMaskFromAEChannels(const CAEChannelInfo &channels);
-    void         BuildWaveFormatExtensible(AEAudioFormat &format, WAVEFORMATEXTENSIBLE &wfxex);
-    void         BuildWaveFormatExtensibleIEC61397(AEAudioFormat &format, WAVEFORMATEXTENSIBLE_IEC61937 &wfxex);
+    bool InitializeExclusive(AEAudioFormat &format);
+    static void BuildWaveFormatExtensibleIEC61397(AEAudioFormat &format, WAVEFORMATEXTENSIBLE_IEC61937 &wfxex);
+    bool IsUSBDevice();
 
-    static const char  *WASAPIErrToStr(HRESULT err);
-
-    HANDLE              m_needDataEvent;
-    IMMDevice          *m_pDevice;
-    IAudioClient       *m_pAudioClient;
-    IAudioRenderClient *m_pRenderClient;
+    HANDLE m_needDataEvent;
+    IAEWASAPIDevice* m_pDevice;
+    Microsoft::WRL::ComPtr<IAudioClient> m_pAudioClient;
+    Microsoft::WRL::ComPtr<IAudioRenderClient> m_pRenderClient;
+    Microsoft::WRL::ComPtr<IAudioClock> m_pAudioClock;
 
     AEAudioFormat       m_format;
-    enum AEDataFormat   m_encodedFormat;
     unsigned int        m_encodedChannels;
     unsigned int        m_encodedSampleRate;
     CAEChannelInfo      m_channelLayout;
@@ -71,8 +58,15 @@ private:
 
     bool                m_running;
     bool                m_initialized;
+    bool                m_isSuspended;    /* sink is in a suspended state - release audio device */
     bool                m_isDirty;        /* sink output failed - needs re-init or new device */
 
     unsigned int        m_uiBufferLen;    /* wasapi endpoint buffer size, in frames */
     double              m_avgTimeWaiting; /* time between next buffer of data from SoftAE and driver call for data */
+    double              m_sinkLatency;    /* time in seconds of total duration of the two WASAPI buffers */
+    uint64_t            m_sinkFrames;
+    uint64_t            m_clockFreq;
+
+    uint8_t            *m_pBuffer;
+    int                 m_bufferPtr;
 };

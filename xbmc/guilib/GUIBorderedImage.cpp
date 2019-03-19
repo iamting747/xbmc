@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIBorderedImage.h"
@@ -30,19 +17,17 @@ CGUIBorderedImage::CGUIBorderedImage(int parentID, int controlID, float posX, fl
 }
 
 CGUIBorderedImage::CGUIBorderedImage(const CGUIBorderedImage &right)
-: CGUIImage(right), m_borderImage(right.m_borderImage)
+: CGUIImage(right), m_borderImage(right.m_borderImage), m_borderSize(right.m_borderSize)
 {
-  m_borderSize = right.m_borderSize;
   ControlType = GUICONTROL_BORDEREDIMAGE;
 }
 
-CGUIBorderedImage::~CGUIBorderedImage(void)
-{
-}
+CGUIBorderedImage::~CGUIBorderedImage(void) = default;
 
 void CGUIBorderedImage::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
-  if (!m_borderImage.GetFileName().IsEmpty() && m_texture.ReadyToRender())
+  CGUIImage::Process(currentTime, dirtyregions);
+  if (!m_borderImage.GetFileName().empty() && m_texture.ReadyToRender())
   {
     CRect rect = CRect(m_texture.GetXPosition(), m_texture.GetYPosition(), m_texture.GetXPosition() + m_texture.GetWidth(), m_texture.GetYPosition() + m_texture.GetHeight());
     rect.Intersect(m_texture.GetRenderRect());
@@ -53,12 +38,11 @@ void CGUIBorderedImage::Process(unsigned int currentTime, CDirtyRegionList &dirt
     if (m_borderImage.Process(currentTime))
       MarkDirtyRegion();
   }
-  CGUIImage::Process(currentTime, dirtyregions);
 }
 
 void CGUIBorderedImage::Render()
 {
-  if (!m_borderImage.GetFileName().IsEmpty() && m_texture.ReadyToRender())
+  if (!m_borderImage.GetFileName().empty() && m_texture.ReadyToRender())
     m_borderImage.Render();
   CGUIImage::Render();
 }

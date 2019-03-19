@@ -1,26 +1,12 @@
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUILabel.h"
-#include "utils/CharsetConverter.h"
 #include <limits>
 
 CGUILabel::CGUILabel(float posX, float posY, float width, float height, const CLabelInfo& labelInfo, CGUILabel::OVER_FLOW overflow)
@@ -28,7 +14,6 @@ CGUILabel::CGUILabel(float posX, float posY, float width, float height, const CL
     , m_textLayout(labelInfo.font, overflow == OVER_FLOW_WRAP, height)
     , m_scrolling(overflow == OVER_FLOW_SCROLL)
     , m_overflowType(overflow)
-    , m_selected(false)
     , m_scrollInfo(50, 0, labelInfo.scrollSpeed, labelInfo.scrollSuffix)
     , m_renderRect()
     , m_maxRect(posX, posY, posX + width, posY + height)
@@ -37,17 +22,24 @@ CGUILabel::CGUILabel(float posX, float posY, float width, float height, const CL
 {
 }
 
-CGUILabel::~CGUILabel(void)
-{
-}
+CGUILabel::~CGUILabel(void) = default;
 
 bool CGUILabel::SetScrolling(bool scrolling)
 {
   bool changed = m_scrolling != scrolling;
 
   m_scrolling = scrolling;
-  if (!m_scrolling)
+  if (changed)
     m_scrollInfo.Reset();
+
+  return changed;
+}
+
+bool CGUILabel::SetOverflow(OVER_FLOW overflow)
+{
+  bool changed = m_overflowType != overflow;
+
+  m_overflowType = overflow;
 
   return changed;
 }
@@ -61,7 +53,7 @@ bool CGUILabel::SetColor(CGUILabel::COLOR color)
   return changed;
 }
 
-color_t CGUILabel::GetColor() const
+UTILS::Color CGUILabel::GetColor() const
 {
   switch (m_color)
   {
@@ -71,6 +63,8 @@ color_t CGUILabel::GetColor() const
       return m_label.disabledColor;
     case COLOR_FOCUSED:
       return m_label.focusedColor ? m_label.focusedColor : m_label.textColor;
+    case COLOR_INVALID:
+      return m_label.invalidColor ? m_label.invalidColor : m_label.textColor;
     default:
       break;
   }
@@ -79,15 +73,25 @@ color_t CGUILabel::GetColor() const
 
 bool CGUILabel::Process(unsigned int currentTime)
 {
-  // TODO Add the correct processing
+  //! @todo Add the correct processing
 
   bool overFlows = (m_renderRect.Width() + 0.5f < m_textLayout.GetTextWidth()); // 0.5f to deal with floating point rounding issues
-  return (overFlows && m_scrolling);
+  bool renderSolid = (m_color == COLOR_DISABLED);
+
+  if (overFlows && m_scrolling && !renderSolid)
+  {
+    if (m_maxScrollLoops < m_scrollInfo.m_loopCount)
+      SetScrolling(false);
+    else
+      return m_textLayout.UpdateScrollinfo(m_scrollInfo);
+  }
+
+  return false;
 }
 
 void CGUILabel::Render()
 {
-  color_t color = GetColor();
+  UTILS::Color color = GetColor();
   bool renderSolid = (m_color == COLOR_DISABLED);
   bool overFlows = (m_renderRect.Width() + 0.5f < m_textLayout.GetTextWidth()); // 0.5f to deal with floating point rounding issues
   if (overFlows && m_scrolling && !renderSolid)
@@ -112,7 +116,7 @@ void CGUILabel::Render()
     }
     else
       align |= XBFONT_TRUNCATED;
-    m_textLayout.Render(posX, posY, m_label.angle, color, m_label.shadowColor, align, m_renderRect.Width(), renderSolid);
+    m_textLayout.Render(posX, posY, m_label.angle, color, m_label.shadowColor, align, m_overflowType == OVER_FLOW_CLIP ? m_textLayout.GetTextWidth() : m_renderRect.Width(), renderSolid);
   }
 }
 
@@ -146,7 +150,14 @@ bool CGUILabel::SetAlign(uint32_t align)
   return changed;
 }
 
-bool CGUILabel::SetText(const CStdString &label)
+bool CGUILabel::SetStyledText(const vecText &text, const std::vector<UTILS::Color> &colors)
+{
+  m_textLayout.UpdateStyled(text, colors, m_maxRect.Width());
+  m_invalid = false;
+  return true;
+}
+
+bool CGUILabel::SetText(const std::string &label)
 {
   if (m_textLayout.Update(label, m_maxRect.Width(), m_invalid))
   { // needed an update - reset scrolling and update our text layout
@@ -159,7 +170,7 @@ bool CGUILabel::SetText(const CStdString &label)
     return false;
 }
 
-bool CGUILabel::SetTextW(const CStdStringW &label)
+bool CGUILabel::SetTextW(const std::wstring &label)
 {
   if (m_textLayout.UpdateW(label, m_maxRect.Width(), m_invalid))
   {
@@ -203,13 +214,13 @@ bool CGUILabel::CheckAndCorrectOverlap(CGUILabel &label1, CGUILabel &label2)
   CRect rect(label1.m_renderRect);
   if (rect.Intersect(label2.m_renderRect).IsEmpty())
     return false; // nothing to do (though it could potentially encroach on the min_space requirement)
-  
-  static const float min_space = 10;
+
   // overlap vertically and horizontally - check alignment
   CGUILabel &left = label1.m_renderRect.x1 <= label2.m_renderRect.x1 ? label1 : label2;
   CGUILabel &right = label1.m_renderRect.x1 <= label2.m_renderRect.x1 ? label2 : label1;
   if ((left.m_label.align & 3) == 0 && right.m_label.align & XBFONT_RIGHT)
   {
+    static const float min_space = 10;
     float chopPoint = (left.m_maxRect.x1 + left.GetMaxWidth() + right.m_maxRect.x2 - right.GetMaxWidth()) * 0.5f;
     // [1       [2...[2  1].|..........1]         2]
     // [1       [2.....[2   |      1]..1]         2]

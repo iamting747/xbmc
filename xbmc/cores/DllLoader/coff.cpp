@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include <stdlib.h>
@@ -70,6 +57,7 @@ CoffLoader::CoffLoader()
   NumOfDirectories = 0;
   NumOfSections = 0;
   FileHeaderOffset = 0;
+  EntryAddress = 0;
   hModule = NULL;
 }
 
@@ -77,7 +65,7 @@ CoffLoader::~CoffLoader()
 {
   if ( hModule )
   {
-#ifdef _LINUX
+#ifdef TARGET_POSIX
     free(hModule);
 #else
     VirtualFree(hModule, 0, MEM_RELEASE);
@@ -182,12 +170,16 @@ int CoffLoader::LoadCoffHModule(FILE *fp)
   if (!fread(Sig, 1, 2, fp) || strncmp(Sig, "MZ", 2) != 0)
     return 0;
 
+  if (fseek(fp, 0x3c, SEEK_SET) != 0)
+    return 0;
+
   int Offset = 0;
-  fseek(fp, 0x3c, SEEK_SET);
   if (!fread(&Offset, sizeof(int), 1, fp) || (Offset <= 0))
     return 0;
 
-  fseek(fp, Offset, SEEK_SET);
+  if (fseek(fp, Offset, SEEK_SET) != 0)
+    return 0;
+
   memset(Sig, 0, sizeof(Sig));
   if (!fread(Sig, 1, 4, fp) || strncmp(Sig, "PE\0\0", 4) != 0)
     return 0;
@@ -205,12 +197,14 @@ int CoffLoader::LoadCoffHModule(FILE *fp)
     return 0;
 
   // alloc aligned memory
-#ifdef _LINUX
+#ifdef TARGET_POSIX
   hModule = malloc(tempWindowsHeader.SizeOfImage);
+#elif defined TARGET_WINDOWS_STORE
+  hModule = VirtualAllocFromApp(GetCurrentProcess(), tempWindowsHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 #else
-  hModule = VirtualAllocEx(0, (PVOID)tempWindowsHeader.ImageBase, tempWindowsHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+  hModule = VirtualAllocEx(GetCurrentProcess(), (PVOID)tempWindowsHeader.ImageBase, tempWindowsHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
   if (hModule == NULL)
-    hModule = VirtualAlloc(0, tempWindowsHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    hModule = VirtualAlloc(GetCurrentProcess(), tempWindowsHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 #endif
   if (hModule == NULL)
     return 0;   //memory allocation fails
@@ -278,11 +272,15 @@ int CoffLoader::LoadCoffHModule(FILE *fp)
 int CoffLoader::LoadSymTable(FILE *fp)
 {
   int Offset = ftell(fp);
+  if (Offset < 0)
+    return 0;
 
   if ( CoffFileHeader->PointerToSymbolTable == 0 )
     return 1;
 
-  fseek(fp, CoffFileHeader->PointerToSymbolTable /* + CoffBeginOffset*/, SEEK_SET);
+  if (fseek(fp, CoffFileHeader->PointerToSymbolTable /* + CoffBeginOffset*/, SEEK_SET) != 0)
+    return 0;
+
   SymbolTable_t *tmp = new SymbolTable_t[CoffFileHeader->NumberOfSymbols];
   if (!tmp)
   {
@@ -290,10 +288,14 @@ int CoffLoader::LoadSymTable(FILE *fp)
     return 0;
   }
   if (!fread((void *)tmp, CoffFileHeader->NumberOfSymbols, sizeof(SymbolTable_t), fp))
+  {
+    delete[] tmp;
     return 0;
+  }
   NumberOfSymbols = CoffFileHeader->NumberOfSymbols;
   SymTable = tmp;
-  fseek(fp, Offset, SEEK_SET);
+  if (fseek(fp, Offset, SEEK_SET) != 0)
+    return 0;
   return 1;
 }
 
@@ -301,14 +303,18 @@ int CoffLoader::LoadStringTable(FILE *fp)
 {
   int StringTableSize;
   char *tmp = NULL;
+
   int Offset = ftell(fp);
+  if (Offset < 0)
+    return 0;
 
   if ( CoffFileHeader->PointerToSymbolTable == 0 )
     return 1;
 
-  fseek(fp, CoffFileHeader->PointerToSymbolTable +
+  if (fseek(fp, CoffFileHeader->PointerToSymbolTable +
         CoffFileHeader->NumberOfSymbols * sizeof(SymbolTable_t),
-        SEEK_SET);
+        SEEK_SET) != 0)
+    return 0;
 
   if (!fread(&StringTableSize, 1, sizeof(int), fp))
     return 0;
@@ -329,7 +335,8 @@ int CoffLoader::LoadStringTable(FILE *fp)
   }
   SizeOfStringTable = StringTableSize;
   StringTable = tmp;
-  fseek(fp, Offset, SEEK_SET);
+  if (fseek(fp, Offset, SEEK_SET) != 0)
+    return 0;
   return 1;
 }
 
@@ -357,10 +364,12 @@ int CoffLoader::LoadSections(FILE *fp)
 
   for (int SctnCnt = 0; SctnCnt < NumOfSections; SctnCnt++)
   {
-    SectionHeader_t *ScnHdr = (SectionHeader_t *)(SectionHeader + SctnCnt);
+    SectionHeader_t *ScnHdr = SectionHeader + SctnCnt;
     SectionData[SctnCnt] = ((char*)hModule + ScnHdr->VirtualAddress);
 
-    fseek(fp, ScnHdr->PtrToRawData, SEEK_SET);
+    if (fseek(fp, ScnHdr->PtrToRawData, SEEK_SET) != 0)
+      return 0;
+
     if (!fread(SectionData[SctnCnt], 1, ScnHdr->SizeOfRawData, fp))
       return 0;
 
@@ -468,8 +477,7 @@ char *CoffLoader::GetStringTblOff(int Offset)
 
 char *CoffLoader::GetSymbolName(SymbolTable_t *sym)
 {
-  static char shortname[9];
-  __int64 index = sym->Name.Offset;
+  long long index = sym->Name.Offset;
   int low = (int)(index & 0xFFFFFFFF);
   int high = (int)((index >> 32) & 0xFFFFFFFF);
 
@@ -479,6 +487,7 @@ char *CoffLoader::GetSymbolName(SymbolTable_t *sym)
   }
   else
   {
+    static char shortname[9];
     memset(shortname, 0, 9);
     strncpy(shortname, (char *)sym->Name.ShortName, 8);
     return shortname;
@@ -795,7 +804,6 @@ void CoffLoader::PrintSection(SectionHeader_t *ScnHdr, char* data)
   if (ScnHdr->SizeOfRawData > 0)
   {
     unsigned int i;
-    char ch;
     // Print the Raw Data
 
     printf("\nRAW DATA");
@@ -803,7 +811,7 @@ void CoffLoader::PrintSection(SectionHeader_t *ScnHdr, char* data)
     {
       if ((i % 16) == 0)
         printf("\n  %08X: ", i);
-      ch = data[i];
+      char ch = data[i];
       printf("%02X ", (unsigned int)ch);
     }
     printf("\n\n");
@@ -942,7 +950,7 @@ void CoffLoader::PerformFixups(void)
 
   EntryAddress = (unsigned long)RVA2Data(EntryAddress);
 
-  if( (PVOID)WindowsHeader->ImageBase == hModule )
+  if( reinterpret_cast<void*>(WindowsHeader->ImageBase) == hModule )
     return;
 
   if ( !Directory )

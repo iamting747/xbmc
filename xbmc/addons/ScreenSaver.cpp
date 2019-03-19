@@ -1,96 +1,75 @@
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
 #include "ScreenSaver.h"
-#include "settings/Settings.h"
-#include "windowing/WindowingFactory.h"
+#include "filesystem/SpecialProtocol.h"
+#include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
+#include "utils/log.h"
+#ifdef TARGET_WINDOWS
+#include "rendering/dx/DeviceResources.h"
+#endif
 
 namespace ADDON
 {
 
-  CScreenSaver::CScreenSaver(const char *addonID)
-   : ADDON::CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>(AddonProps(addonID, ADDON_UNKNOWN, "", ""))
-  {
-  }
-
-bool CScreenSaver::CreateScreenSaver()
+CScreenSaver::CScreenSaver(BinaryAddonBasePtr addonBase)
+ : IAddonInstanceHandler(ADDON_INSTANCE_SCREENSAVER, addonBase)
 {
- // pass it the screen width,height
- // and the name of the screensaver
-  int iWidth = g_graphicsContext.GetWidth();
-  int iHeight = g_graphicsContext.GetHeight();
+  m_name = Name();
+  m_presets = CSpecialProtocol::TranslatePath(Path());
+  m_profile = CSpecialProtocol::TranslatePath(Profile());
 
-  m_pInfo = new SCR_PROPS;
-#ifdef HAS_DX
-  m_pInfo->device     = g_Windowing.Get3DDevice();
+  m_struct = {{0}};
+#ifdef TARGET_WINDOWS
+  m_struct.props.device = DX::DeviceResources::Get()->GetD3DContext();
 #else
-  m_pInfo->device     = NULL;
+  m_struct.props.device = nullptr;
 #endif
-  m_pInfo->x          = 0;
-  m_pInfo->y          = 0;
-  m_pInfo->width      = iWidth;
-  m_pInfo->height     = iHeight;
-  m_pInfo->pixelRatio = g_settings.m_ResInfo[g_graphicsContext.GetVideoResolution()].fPixelRatio;
-  m_pInfo->name       = strdup(Name().c_str());
-  m_pInfo->presets    = strdup(CSpecialProtocol::TranslatePath(Path()).c_str());
-  m_pInfo->profile    = strdup(CSpecialProtocol::TranslatePath(Profile()).c_str());
+  m_struct.props.x = 0;
+  m_struct.props.y = 0;
+  m_struct.props.width = CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth();
+  m_struct.props.height = CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight();
+  m_struct.props.pixelRatio = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo().fPixelRatio;
+  m_struct.props.name = m_name.c_str();
+  m_struct.props.presets = m_presets.c_str();
+  m_struct.props.profile = m_profile.c_str();
 
-  if (CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>::Create())
-    return true;
+  m_struct.toKodi.kodiInstance = this;
 
+  /* Open the class "kodi::addon::CInstanceScreensaver" on add-on side */
+  if (CreateInstance(&m_struct) != ADDON_STATUS_OK)
+    CLog::Log(LOGFATAL, "Screensaver: failed to create instance for '%s' and not usable!", ID().c_str());
+}
+
+CScreenSaver::~CScreenSaver()
+{
+  /* Destroy the class "kodi::addon::CInstanceScreensaver" on add-on side */
+  DestroyInstance();
+}
+
+bool CScreenSaver::Start()
+{
+  if (m_struct.toAddon.Start)
+    return m_struct.toAddon.Start(&m_struct);
   return false;
 }
 
-void CScreenSaver::Start()
+void CScreenSaver::Stop()
 {
-  // notify screen saver that they should start
-  if (Initialized()) m_pStruct->Start();
+  if (m_struct.toAddon.Stop)
+    m_struct.toAddon.Stop(&m_struct);
 }
 
 void CScreenSaver::Render()
 {
-  // ask screensaver to render itself
-  if (Initialized()) m_pStruct->Render();
+  if (m_struct.toAddon.Render)
+    m_struct.toAddon.Render(&m_struct);
 }
 
-void CScreenSaver::GetInfo(SCR_INFO *info)
-{
-  // get info from screensaver
-  if (Initialized()) m_pStruct->GetInfo(info);
-}
-
-void CScreenSaver::Destroy()
-{
-  // Release what was allocated in method CScreenSaver::CreateScreenSaver.
-  if (m_pInfo)
-  {
-    free((void *) m_pInfo->name);
-    free((void *) m_pInfo->presets);
-    free((void *) m_pInfo->profile);
-
-    delete m_pInfo;
-    m_pInfo = NULL;
-  }
-
-  CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>::Destroy();
-}
-
-} /*namespace ADDON*/
-
+} /* namespace ADDON */

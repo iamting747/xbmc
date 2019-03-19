@@ -1,29 +1,14 @@
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "Base64.h"
 
 #define PADDING '='
-
-using namespace std;
 
 const std::string Base64::m_characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                          "abcdefghijklmnopqrstuvwxyz"
@@ -36,6 +21,7 @@ void Base64::Encode(const char* input, unsigned int length, std::string &output)
 
   long l;
   output.clear();
+  output.reserve(((length + 2) / 3) * 4);
 
   for (unsigned int i = 0; i < length; i += 3)
   {
@@ -99,6 +85,8 @@ void Base64::Decode(const char* input, unsigned int length, std::string &output)
     }
   }
 
+  output.reserve(length - ((length + 2) / 4));
+
   for (unsigned int i = 0; i < length; i += 4)
   {
     l = ((((unsigned long) m_characters.find(input[i])) & 0x3F) << 18);
@@ -125,7 +113,7 @@ std::string Base64::Decode(const char* input, unsigned int length)
 void Base64::Decode(const std::string &input, std::string &output)
 {
   size_t length = input.find_first_of(PADDING);
-  if (length == string::npos)
+  if (length == std::string::npos)
     length = input.size();
 
   Decode(input.c_str(), length, output);

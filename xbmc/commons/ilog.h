@@ -1,34 +1,18 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #pragma once
-
-#include <stdio.h>
 
 #define LOG_LEVEL_NONE         -1 // nothing at all is logged
 #define LOG_LEVEL_NORMAL        0 // shows notice, error, severe and fatal
 #define LOG_LEVEL_DEBUG         1 // shows all
 #define LOG_LEVEL_DEBUG_FREEMEM 2 // shows all + shows freemem on screen
-#define LOG_LEVEL_DEBUG_SAMBA   3 // shows all + freemem on screen + samba debugging
-#define LOG_LEVEL_MAX           LOG_LEVEL_DEBUG_SAMBA
+#define LOG_LEVEL_MAX           LOG_LEVEL_DEBUG_FREEMEM
 
 // ones we use in the code
 #define LOGDEBUG   0
@@ -40,22 +24,38 @@
 #define LOGFATAL   6
 #define LOGNONE    7
 
-#ifdef __GNUC__
-#define ATTRIB_LOG_FORMAT __attribute__((format(printf,3,4)))
-#else
-#define ATTRIB_LOG_FORMAT
-#endif
+// extra masks - from bit 5
+#define LOGMASKBIT    5
+#define LOGMASK       ((1 << LOGMASKBIT) - 1)
+
+#define LOGSAMBA      (1 << (LOGMASKBIT + 0))
+#define LOGCURL       (1 << (LOGMASKBIT + 1))
+#define LOGFFMPEG     (1 << (LOGMASKBIT + 2))
+#define LOGDBUS       (1 << (LOGMASKBIT + 4))
+#define LOGJSONRPC    (1 << (LOGMASKBIT + 5))
+#define LOGAUDIO      (1 << (LOGMASKBIT + 6))
+#define LOGAIRTUNES   (1 << (LOGMASKBIT + 7))
+#define LOGUPNP       (1 << (LOGMASKBIT + 8))
+#define LOGCEC        (1 << (LOGMASKBIT + 9))
+#define LOGVIDEO      (1 << (LOGMASKBIT + 10))
+#define LOGWEBSERVER  (1 << (LOGMASKBIT + 11))
+#define LOGDATABASE   (1 << (LOGMASKBIT + 12))
+#define LOGAVTIMING   (1 << (LOGMASKBIT + 13))
+#define LOGWINDOWING  (1 << (LOGMASKBIT + 14))
+#define LOGPVR        (1 << (LOGMASKBIT + 15))
+#define LOGEPG        (1 << (LOGMASKBIT + 16))
+
+#include "utils/params_check_macros.h"
 
 namespace XbmcCommons
 {
   class ILogger
   {
   public:
-    virtual ~ILogger() {}
-    void Log(int loglevel, const char *format, ... ) ATTRIB_LOG_FORMAT;
+    virtual ~ILogger() = default;
+    void Log(int loglevel, PRINTF_FORMAT_STRING const char *format, ...) PARAM3_PRINTF_FORMAT;
 
-    virtual void log(int loglevel, const char* message) = 0;
+    virtual void log(int loglevel, IN_STRING const char* message) = 0;
   };
 }
 
-#undef ATTRIB_LOG_FORMAT

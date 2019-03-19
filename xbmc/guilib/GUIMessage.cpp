@@ -1,30 +1,15 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIMessage.h"
 #include "LocalizeStrings.h"
 
-using namespace std;
-
-CStdString CGUIMessage::empty_string;
+std::string CGUIMessage::empty_string;
 
 CGUIMessage::CGUIMessage(int msg, int senderID, int controlID, int param1, int param2)
 {
@@ -57,13 +42,9 @@ CGUIMessage::CGUIMessage(int msg, int senderID, int controlID, int param1, int p
   m_item = item;
 }
 
-CGUIMessage::CGUIMessage(const CGUIMessage& msg)
-{
-  *this = msg;
-}
+CGUIMessage::CGUIMessage(const CGUIMessage& msg) = default;
 
-CGUIMessage::~CGUIMessage(void)
-{}
+CGUIMessage::~CGUIMessage(void) = default;
 
 
 int CGUIMessage::GetControlId() const
@@ -101,23 +82,7 @@ int CGUIMessage::GetSenderId() const
   return m_senderID;
 }
 
-
-const CGUIMessage& CGUIMessage::operator = (const CGUIMessage& msg)
-{
-  if (this == &msg) return * this;
-
-  m_message = msg.m_message;
-  m_controlID = msg.m_controlID;
-  m_param1 = msg.m_param1;
-  m_param2 = msg.m_param2;
-  m_pointer = msg.m_pointer;
-  m_strLabel = msg.m_strLabel;
-  m_senderID = msg.m_senderID;
-  m_params = msg.m_params;
-  m_item = msg.m_item;
-  return *this;
-}
-
+CGUIMessage& CGUIMessage::operator = (const CGUIMessage& msg) = default;
 
 void CGUIMessage::SetParam1(int param1)
 {
@@ -134,12 +99,12 @@ void CGUIMessage::SetPointer(void* lpVoid)
   m_pointer = lpVoid;
 }
 
-void CGUIMessage::SetLabel(const string& strLabel)
+void CGUIMessage::SetLabel(const std::string& strLabel)
 {
   m_strLabel = strLabel;
 }
 
-const string& CGUIMessage::GetLabel() const
+const std::string& CGUIMessage::GetLabel() const
 {
   return m_strLabel;
 }
@@ -149,19 +114,19 @@ void CGUIMessage::SetLabel(int iString)
   m_strLabel = g_localizeStrings.Get(iString);
 }
 
-void CGUIMessage::SetStringParam(const CStdString& strParam)
+void CGUIMessage::SetStringParam(const std::string& strParam)
 {
   m_params.clear();
   if (strParam.size())
     m_params.push_back(strParam);
 }
 
-void CGUIMessage::SetStringParams(const vector<CStdString> &params)
+void CGUIMessage::SetStringParams(const std::vector<std::string> &params)
 {
   m_params = params;
 }
 
-const CStdString& CGUIMessage::GetStringParam(size_t param) const
+const std::string& CGUIMessage::GetStringParam(size_t param) const
 {
   if (param >= m_params.size())
     return empty_string;

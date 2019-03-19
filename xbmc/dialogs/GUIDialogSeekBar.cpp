@@ -1,92 +1,31 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#include <math.h>
+
 #include "GUIDialogSeekBar.h"
-#include "guilib/GUISliderControl.h"
-#include "GUIUserMessages.h"
 #include "Application.h"
 #include "GUIInfoManager.h"
-#include "utils/TimeUtils.h"
-#include "utils/StringUtils.h"
+#include "guilib/GUIComponent.h"
+#include "SeekHandler.h"
+#include "guilib/guiinfo/GUIInfoLabels.h"
 
-#define SEEK_BAR_DISPLAY_TIME 2000L
-#define SEEK_BAR_SEEK_TIME     500L
-
-#define POPUP_SEEK_SLIDER       401
-#define POPUP_SEEK_LABEL        402
+#define POPUP_SEEK_PROGRESS           401
+#define POPUP_SEEK_EPG_EVENT_PROGRESS 402
+#define POPUP_SEEK_TIMESHIFT_PROGRESS 403
 
 CGUIDialogSeekBar::CGUIDialogSeekBar(void)
-    : CGUIDialog(WINDOW_DIALOG_SEEK_BAR, "DialogSeekBar.xml")
+  : CGUIDialog(WINDOW_DIALOG_SEEK_BAR, "DialogSeekBar.xml", DialogModalityType::MODELESS)
 {
-  m_fSeekPercentage = 0.0f;
-  m_bRequireSeek = false;
-  m_loadOnDemand = false;    // the application class handles our resources
+  m_loadType = LOAD_ON_GUI_INIT;    // the application class handles our resources
 }
 
-CGUIDialogSeekBar::~CGUIDialogSeekBar(void)
-{
-}
-
-bool CGUIDialogSeekBar::OnAction(const CAction &action)
-{
-  if (action.GetID() == ACTION_ANALOG_SEEK_FORWARD || action.GetID() == ACTION_ANALOG_SEEK_BACK)
-  {
-    if (!m_bRequireSeek)
-    { // start of seeking
-
-      if (g_infoManager.GetTotalPlayTime())
-        m_fSeekPercentage = (float)g_infoManager.GetPlayTime() / g_infoManager.GetTotalPlayTime() * 0.1f;
-      else
-        m_fSeekPercentage = 0.0f;
-
-      // tell info manager that we have started a seekbar operation
-      m_bRequireSeek = true;
-      g_infoManager.SetSeeking(true);
-    }
-
-    // calculate our seek amount
-    if (g_application.m_pPlayer && !g_infoManager.m_performingSeek)
-    {
-      //100% over 1 second.
-      float speed = 100.0f;
-      if( action.GetRepeat() )
-        speed *= action.GetRepeat();
-      else
-        speed /= g_infoManager.GetFPS();
-
-      if (action.GetID() == ACTION_ANALOG_SEEK_FORWARD)
-        m_fSeekPercentage += action.GetAmount() * action.GetAmount() * speed;
-      else
-        m_fSeekPercentage -= action.GetAmount() * action.GetAmount() * speed;
-      if (m_fSeekPercentage > 100.0f) m_fSeekPercentage = 100.0f;
-      if (m_fSeekPercentage < 0.0f) m_fSeekPercentage = 0.0f;
-      CGUISliderControl *pSlider = (CGUISliderControl*)GetControl(POPUP_SEEK_SLIDER);
-      if (pSlider) pSlider->SetPercentage((int)m_fSeekPercentage);   // Update our seek bar accordingly
-    }
-
-    ResetTimer();
-    return true;
-  }
-  return CGUIDialog::OnAction(action);
-}
+CGUIDialogSeekBar::~CGUIDialogSeekBar(void) = default;
 
 bool CGUIDialogSeekBar::OnMessage(CGUIMessage& message)
 {
@@ -95,75 +34,104 @@ bool CGUIDialogSeekBar::OnMessage(CGUIMessage& message)
   case GUI_MSG_WINDOW_INIT:
   case GUI_MSG_WINDOW_DEINIT:
     return CGUIDialog::OnMessage(message);
-
-  case GUI_MSG_LABEL_SET:
-    {
-      if (message.GetSenderId() == GetID() && message.GetControlId() == POPUP_SEEK_LABEL)
-        CGUIDialog::OnMessage(message);
-    }
+  case GUI_MSG_ITEM_SELECT:
+    if (message.GetSenderId() == GetID() &&
+        (message.GetControlId() == POPUP_SEEK_PROGRESS ||
+         message.GetControlId() == POPUP_SEEK_EPG_EVENT_PROGRESS ||
+         message.GetControlId() == POPUP_SEEK_TIMESHIFT_PROGRESS))
+      return CGUIDialog::OnMessage(message);
     break;
-  case GUI_MSG_PLAYBACK_STARTED:
-    { // new song started while our window is up - update our details
-
-      m_bRequireSeek = false;
-      m_fSeekPercentage = 0.0f;
-
-    }
-    break;
-
+  case GUI_MSG_REFRESH_TIMER:
+    return CGUIDialog::OnMessage(message);
   }
   return false; // don't process anything other than what we need!
 }
 
-void CGUIDialogSeekBar::ResetTimer()
-{
-  m_timer = CTimeUtils::GetFrameTime();
-}
-
 void CGUIDialogSeekBar::FrameMove()
 {
-  if (!g_application.m_pPlayer)
+  if (!g_application.GetAppPlayer().HasPlayer())
   {
     Close(true);
     return;
   }
 
-  // check if we should seek or exit
-  if (!g_infoManager.m_performingSeek && CTimeUtils::GetFrameTime() - m_timer > SEEK_BAR_DISPLAY_TIME)
-    g_infoManager.SetSeeking(false);
+  int progress = GetProgress();
+  if (progress != m_lastProgress)
+    CONTROL_SELECT_ITEM(POPUP_SEEK_PROGRESS, m_lastProgress = progress);
 
-  // render our controls
-  if (!m_bRequireSeek && !g_infoManager.m_performingSeek)
-  { // position the bar at our current time
-    CGUISliderControl *pSlider = (CGUISliderControl*)GetControl(POPUP_SEEK_SLIDER);
-    if (pSlider && g_infoManager.GetTotalPlayTime())
-      pSlider->SetPercentage((int)((float)g_infoManager.GetPlayTime()/g_infoManager.GetTotalPlayTime() * 0.1f));
+  int epgEventProgress = GetEpgEventProgress();
+  if (epgEventProgress != m_lastEpgEventProgress)
+    CONTROL_SELECT_ITEM(POPUP_SEEK_EPG_EVENT_PROGRESS, m_lastEpgEventProgress = epgEventProgress);
 
-    CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), POPUP_SEEK_LABEL);
-    msg.SetLabel(g_infoManager.GetCurrentPlayTime());
-    OnMessage(msg);
-  }
-  else
-  {
-    CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), POPUP_SEEK_LABEL);
-    msg.SetLabel(GetSeekTimeLabel());
-    OnMessage(msg);
-  }
+  int timeshiftProgress = GetTimeshiftProgress();
+  if (timeshiftProgress != m_lastTimeshiftProgress)
+    CONTROL_SELECT_ITEM(POPUP_SEEK_TIMESHIFT_PROGRESS, m_lastTimeshiftProgress = timeshiftProgress);
 
-  // Check for seek timeout, and perform the seek
-  if (m_bRequireSeek && CTimeUtils::GetFrameTime() - m_timer > SEEK_BAR_SEEK_TIME)
-  {
-    g_infoManager.m_performingSeek = true;
-    double time = g_infoManager.GetTotalPlayTime() * m_fSeekPercentage * 0.01;
-    g_application.SeekTime(time);
-    m_bRequireSeek = false;
-  }
   CGUIDialog::FrameMove();
 }
 
-CStdString CGUIDialogSeekBar::GetSeekTimeLabel(TIME_FORMAT format)
+int CGUIDialogSeekBar::GetProgress() const
 {
-  int time = (int)(g_infoManager.GetTotalPlayTime() * m_fSeekPercentage * 0.01f);
-  return StringUtils::SecondsToTimeString(time, format);
+  CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
+
+  int progress = 0;
+
+  if (g_application.GetAppPlayer().GetSeekHandler().GetSeekSize() != 0)
+    infoMgr.GetInt(progress, PLAYER_SEEKBAR);
+  else
+    infoMgr.GetInt(progress, PLAYER_PROGRESS);
+
+  return progress;
 }
 
+int CGUIDialogSeekBar::GetEpgEventProgress() const
+{
+  CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
+
+  int progress = 0;
+  infoMgr.GetInt(progress, PVR_EPG_EVENT_PROGRESS);
+
+  int seekSize = g_application.GetAppPlayer().GetSeekHandler().GetSeekSize();
+  if (seekSize != 0)
+  {
+    int total = 0;
+    infoMgr.GetInt(total, PVR_EPG_EVENT_DURATION);
+
+    float totalTime = static_cast<float>(total);
+    if (totalTime == 0.0f)
+      return 0;
+
+    float percentPerSecond = 100.0f / totalTime;
+    float percent = progress + percentPerSecond * seekSize;
+    percent = std::max(0.0f, std::min(percent, 100.0f));
+    return std::lrintf(percent);
+  }
+
+  return progress;
+}
+
+int CGUIDialogSeekBar::GetTimeshiftProgress() const
+{
+  CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
+
+  int progress = 0;
+  infoMgr.GetInt(progress, PVR_TIMESHIFT_PROGRESS_PLAY_POS);
+
+  int seekSize = g_application.GetAppPlayer().GetSeekHandler().GetSeekSize();
+  if (seekSize != 0)
+  {
+    int total = 0;
+    infoMgr.GetInt(total, PVR_TIMESHIFT_PROGRESS_DURATION);
+
+    float totalTime = static_cast<float>(total);
+    if (totalTime == 0.0f)
+      return 0;
+
+    float percentPerSecond = 100.0f / totalTime;
+    float percent = progress + percentPerSecond * seekSize;
+    percent = std::max(0.0f, std::min(percent, 100.0f));
+    return std::lrintf(percent);
+  }
+
+  return progress;
+}

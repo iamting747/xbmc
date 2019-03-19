@@ -1,25 +1,12 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "guilib/GUIDialog.h"
 #include "playlists/SmartPlayList.h"
@@ -29,12 +16,13 @@ class CGUIDialogSmartPlaylistRule :
 {
 public:
   CGUIDialogSmartPlaylistRule(void);
-  virtual ~CGUIDialogSmartPlaylistRule(void);
-  virtual bool OnMessage(CGUIMessage& message);
-  virtual bool OnBack(int actionID);
-  virtual void OnInitWindow();
+  ~CGUIDialogSmartPlaylistRule(void) override;
+  bool OnMessage(CGUIMessage& message) override;
+  bool OnBack(int actionID) override;
+  void OnInitWindow() override;
+  void OnDeinitWindow(int nextWindowID) override;
 
-  static bool EditRule(CSmartPlaylistRule &rule, const CStdString& type="songs");
+  static bool EditRule(CSmartPlaylistRule &rule, const std::string& type="songs");
 
 protected:
   void OnField();
@@ -42,10 +30,9 @@ protected:
   void OnOK();
   void OnCancel();
   void UpdateButtons();
-  void AddOperatorLabel(CSmartPlaylistRule::SEARCH_OPERATOR op);
   void OnBrowse();
-
+  std::vector< std::pair<std::string, int> > GetValidOperators(const CSmartPlaylistRule& rule);
   CSmartPlaylistRule m_rule;
   bool m_cancelled;
-  CStdString m_type;
+  std::string m_type;
 };

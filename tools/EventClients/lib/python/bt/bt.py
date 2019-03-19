@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#   Copyright (C) 2008-2009 Team XBMC http://www.xbmc.org
+#   Copyright (C) 2008-2013 Team XBMC
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -24,10 +24,10 @@ except:
     try:
         import lightblue
     except:
-        print "ERROR: You need to have either LightBlue or PyBluez installed\n"\
-            "       in order to use this program."
-        print "- PyBluez (Linux / Windows XP) http://org.csail.mit.edu/pybluez/"
-        print "- LightBlue (Mac OS X / Linux) http://lightblue.sourceforge.net/"
+        print("ERROR: You need to have either LightBlue or PyBluez installed\n"\
+            "       in order to use this program.")
+        print("- PyBluez (Linux / Windows XP) http://org.csail.mit.edu/pybluez/")
+        print("- LightBlue (Mac OS X / Linux) http://lightblue.sourceforge.net/")
         exit()
 
 def bt_create_socket():

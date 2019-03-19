@@ -1,31 +1,18 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "threads/SystemClock.h"
 #include "UdpClient.h"
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include <sys/ioctl.h>
 #endif
 #include "Network.h"
-#include "guilib/GraphicContext.h"
+#include "windowing/GraphicContext.h"
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
 
@@ -35,12 +22,10 @@
 
 #define UDPCLIENT_DEBUG_LEVEL LOGDEBUG
 
-CUdpClient::CUdpClient(void) : CThread("CUdpClient")
+CUdpClient::CUdpClient(void) : CThread("UDPClient")
 {}
 
-CUdpClient::~CUdpClient(void)
-{
-}
+CUdpClient::~CUdpClient(void) = default;
 
 bool CUdpClient::Create(void)
 {
@@ -89,11 +74,11 @@ void CUdpClient::OnStartup()
   SetPriority( GetMinPriority() );
 }
 
-bool CUdpClient::Broadcast(int aPort, CStdString& aMessage)
+bool CUdpClient::Broadcast(int aPort, const std::string& aMessage)
 {
   CSingleLock lock(critical_section);
 
-  SOCKADDR_IN addr;
+  struct sockaddr_in addr;
   addr.sin_family = AF_INET;
   addr.sin_port = htons(aPort);
   addr.sin_addr.s_addr = INADDR_BROADCAST;
@@ -106,14 +91,14 @@ bool CUdpClient::Broadcast(int aPort, CStdString& aMessage)
 }
 
 
-bool CUdpClient::Send(CStdString aIpAddress, int aPort, CStdString& aMessage)
+bool CUdpClient::Send(const std::string& aIpAddress, int aPort, const std::string& aMessage)
 {
   CSingleLock lock(critical_section);
 
-  SOCKADDR_IN addr;
+  struct sockaddr_in addr;
   addr.sin_family = AF_INET;
   addr.sin_port = htons(aPort);
-  addr.sin_addr.s_addr = inet_addr(aIpAddress);
+  addr.sin_addr.s_addr = inet_addr(aIpAddress.c_str());
   memset(&addr.sin_zero, 0, sizeof(addr.sin_zero));
 
   UdpCommand transmit = {addr, aMessage, NULL, 0};
@@ -122,7 +107,7 @@ bool CUdpClient::Send(CStdString aIpAddress, int aPort, CStdString& aMessage)
   return true;
 }
 
-bool CUdpClient::Send(SOCKADDR_IN aAddress, CStdString& aMessage)
+bool CUdpClient::Send(struct sockaddr_in aAddress, const std::string& aMessage)
 {
   CSingleLock lock(critical_section);
 
@@ -132,7 +117,7 @@ bool CUdpClient::Send(SOCKADDR_IN aAddress, CStdString& aMessage)
   return true;
 }
 
-bool CUdpClient::Send(SOCKADDR_IN aAddress, LPBYTE pMessage, DWORD dwSize)
+bool CUdpClient::Send(struct sockaddr_in aAddress, unsigned char* pMessage, DWORD dwSize)
 {
   CSingleLock lock(critical_section);
 
@@ -149,7 +134,7 @@ void CUdpClient::Process()
 
   CLog::Log(UDPCLIENT_DEBUG_LEVEL, "UDPCLIENT: Listening.");
 
-  SOCKADDR_IN remoteAddress;
+  struct sockaddr_in remoteAddress;
   char messageBuffer[1024];
   DWORD dataAvailable;
 
@@ -176,7 +161,7 @@ void CUdpClient::Process()
     {
       // read data
       int messageLength = sizeof(messageBuffer) - 1 ;
-#ifndef _LINUX
+#ifndef TARGET_POSIX
       int remoteAddressSize;
 #else
       socklen_t remoteAddressSize;
@@ -190,18 +175,12 @@ void CUdpClient::Process()
         messageLength = ret;
         messageBuffer[messageLength] = '\0';
 
-        CStdString message = messageBuffer;
+        std::string message = messageBuffer;
 
         CLog::Log(UDPCLIENT_DEBUG_LEVEL, "UDPCLIENT RX: %u\t\t<- '%s'",
                   XbmcThreads::SystemClockMillis(), message.c_str() );
 
-        // NOTE: You should consider locking access to the screen device
-        // or at least wait until after vertical refresh before firing off events
-        // to protect access to graphics resources.
-
-        g_graphicsContext.Lock();
-        OnMessage(remoteAddress, message, (LPBYTE)messageBuffer, messageLength);
-        g_graphicsContext.Unlock();
+        OnMessage(remoteAddress, message, reinterpret_cast<unsigned char*>(messageBuffer), messageLength);
       }
       else
       {
@@ -247,7 +226,7 @@ bool CUdpClient::DispatchNextCommand()
 
     do
     {
-      ret = sendto(client_socket, (LPCSTR) command.binary, command.binarySize, 0, (struct sockaddr *) & command.address, sizeof(command.address));
+      ret = sendto(client_socket, (const char*) command.binary, command.binarySize, 0, (struct sockaddr *) & command.address, sizeof(command.address));
     }
     while (ret == -1);
 
@@ -261,7 +240,7 @@ bool CUdpClient::DispatchNextCommand()
 
     do
     {
-      ret = sendto(client_socket, command.message, command.message.GetLength(), 0, (struct sockaddr *) & command.address, sizeof(command.address));
+      ret = sendto(client_socket, command.message.c_str(), command.message.size(), 0, (struct sockaddr *) & command.address, sizeof(command.address));
     }
     while (ret == -1 && !m_bStop);
   }

@@ -1,31 +1,17 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include <dlfcn.h>
 #include "SoLoader.h"
-#include "utils/StdString.h"
 #include "filesystem/SpecialProtocol.h"
 #include "utils/log.h"
 
-SoLoader::SoLoader(const char *so, bool bGlobal) : LibraryLoader(so)
+SoLoader::SoLoader(const std::string &so, bool bGlobal) : LibraryLoader(so)
 {
   m_soHandle = NULL;
   m_bGlobal = bGlobal;
@@ -43,9 +29,7 @@ bool SoLoader::Load()
   if (m_soHandle != NULL)
     return true;
 
-  CStdString strFileName= CSpecialProtocol::TranslatePath(GetFileName());
-  int flags = RTLD_LAZY;
-  if (m_bGlobal) flags |= RTLD_GLOBAL;
+  std::string strFileName= CSpecialProtocol::TranslatePath(GetFileName());
   if (strFileName == "xbmc.so")
   {
     CLog::Log(LOGDEBUG, "Loading Internal Library\n");
@@ -54,6 +38,7 @@ bool SoLoader::Load()
   else
   {
     CLog::Log(LOGDEBUG, "Loading: %s\n", strFileName.c_str());
+    int flags = RTLD_LAZY;
     m_soHandle = dlopen(strFileName.c_str(), flags);
     if (!m_soHandle)
     {
@@ -67,7 +52,6 @@ bool SoLoader::Load()
 
 void SoLoader::Unload()
 {
-  CLog::Log(LOGDEBUG, "Unloading: %s\n", GetName());
 
   if (m_soHandle)
   {

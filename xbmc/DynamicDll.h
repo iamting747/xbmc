@@ -1,28 +1,15 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
 #include "cores/DllLoader/LibraryLoader.h"
-#include "utils/StdString.h"
+#include <string>
 #include "DllPaths.h"
 
 ///////////////////////////////////////////////////////////
@@ -66,7 +53,7 @@ public: \
 //
 //  LOAD_SYMBOLS
 //
-//  Tells the dllloader to load Debug symblos when possible
+//  Tells the dllloader to load Debug symbols when possible
 #define LOAD_SYMBOLS() \
   protected: \
     virtual bool LoadSymbols() { return true; }
@@ -136,9 +123,9 @@ public: \
       void*         m_##name##_ptr; \
     }; \
   public: \
-    virtual result name args \
+    virtual result name args override \
     { \
-      return m_##name args2; \
+      return m_##name ? m_##name args2 : (result) 0; \
     }
 
 #define DEFINE_METHOD_LINKAGE0(result, linkage, name) \
@@ -181,7 +168,7 @@ public: \
 //
 //  DEFINE_METHOD_FP
 //
-//  Defines a function for an export from a dll as a fuction pointer.
+//  Defines a function for an export from a dll as a function pointer.
 //  Use DEFINE_METHOD_FP for each function to be resolved. Functions
 //  defined like this are not listed by IntelliSence.
 //
@@ -219,7 +206,7 @@ public: \
 #define DEFINE_METHOD10(result, name, args) DEFINE_METHOD_LINKAGE10(result, __cdecl, name, args)
 #define DEFINE_METHOD11(result, name, args) DEFINE_METHOD_LINKAGE11(result, __cdecl, name, args)
 
-#ifdef _MSC_VER
+#ifdef TARGET_WINDOWS
 ///////////////////////////////////////////////////////////
 //
 //  DEFINE_FUNC_ALIGNED 0-X
@@ -235,7 +222,7 @@ public: \
 //
 //  Actual function call will expand to something like this
 //  this will align the stack (esp) at the point of function
-//  entry as required by gcc compiled dlls, it is abit abfuscated
+//  entry as required by gcc compiled dlls, it is a bit obfuscated
 //  to allow for different sized variables
 //
 //  int64_t test(int64_t p1, char p2, char p3)
@@ -356,13 +343,11 @@ public: \
 //
 #define BEGIN_METHOD_RESOLVE() \
   protected: \
-  virtual bool ResolveExports() \
-  { \
-    return (
+  virtual bool ResolveExports() override \
+  {
 
 #define END_METHOD_RESOLVE() \
-              1 \
-              ); \
+    return true; \
   }
 
 ///////////////////////////////////////////////////////////
@@ -375,10 +360,34 @@ public: \
 //          or DEFINE_METHOD_LINKAGE
 //
 #define RESOLVE_METHOD(method) \
-  m_dll->ResolveExport( #method , & m_##method##_ptr ) &&
+  if (!m_dll->ResolveExport( #method , & m_##method##_ptr )) \
+    return false;
 
 #define RESOLVE_METHOD_FP(method) \
-  m_dll->ResolveExport( #method , & method##_ptr ) &&
+  if (!m_dll->ResolveExport( #method , & method##_ptr )) \
+    return false;
+
+
+///////////////////////////////////////////////////////////
+//
+//  RESOLVE_METHOD_OPTIONAL
+//
+//  Resolves a method from a dll. does not abort if the
+//  method is missing
+//
+//  method: Name of the method defined with DEFINE_METHOD
+//          or DEFINE_METHOD_LINKAGE
+//
+
+#define RESOLVE_METHOD_OPTIONAL(method) \
+   m_##method##_ptr = nullptr; \
+   m_dll->ResolveExport( #method , & m_##method##_ptr, false );
+
+#define RESOLVE_METHOD_OPTIONAL_FP(method) \
+   method##_ptr = NULL; \
+   m_dll->ResolveExport( #method , & method##_ptr, false );
+
+
 
 ///////////////////////////////////////////////////////////
 //
@@ -391,10 +400,16 @@ public: \
 //          or DEFINE_METHOD_LINKAGE
 //
 #define RESOLVE_METHOD_RENAME(dllmethod, method) \
-  m_dll->ResolveExport( #dllmethod , & m_##method##_ptr ) &&
+  if (!m_dll->ResolveExport( #dllmethod , & m_##method##_ptr )) \
+    return false;
+
+#define RESOLVE_METHOD_RENAME_OPTIONAL(dllmethod, method) \
+  m_##method##_ptr = nullptr; \
+  m_dll->ResolveExport( #dllmethod , & m_##method##_ptr, false );
 
 #define RESOLVE_METHOD_RENAME_FP(dllmethod, method) \
-  m_dll->ResolveExport( #dllmethod , & method##_ptr ) &&
+  if (!m_dll->ResolveExport( #dllmethod , & method##_ptr )) \
+    return false;
 
 
 ////////////////////////////////////////////////////////////////////
@@ -499,19 +514,20 @@ class DllDynamic
 {
 public:
   DllDynamic();
-  DllDynamic(const CStdString& strDllName);
+  explicit DllDynamic(const std::string& strDllName);
   virtual ~DllDynamic();
   virtual bool Load();
   virtual void Unload();
-  virtual bool IsLoaded() { return m_dll!=NULL; }
+  virtual bool IsLoaded() const { return m_dll!=NULL; }
   bool CanLoad();
   bool EnableDelayedUnload(bool bOnOff);
-  bool SetFile(const CStdString& strDllName);
+  bool SetFile(const std::string& strDllName);
+  const std::string &GetFile() const { return m_strDllName; }
 
 protected:
   virtual bool ResolveExports()=0;
   virtual bool LoadSymbols() { return false; }
   bool  m_DelayUnload;
   LibraryLoader* m_dll;
-  CStdString m_strDllName;
+  std::string m_strDllName;
 };

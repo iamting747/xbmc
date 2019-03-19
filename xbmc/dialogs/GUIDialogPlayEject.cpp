@@ -1,33 +1,21 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "Autorun.h"
 #include "GUIDialogPlayEject.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "storage/MediaManager.h"
-#include "storage/IoSupport.h"
 #include "utils/log.h"
-#include "utils/URIUtils.h"
+#include "utils/Variant.h"
 #include "utils/XMLUtils.h"
-#include "video/VideoInfoTag.h"
+#include "ServiceBroker.h"
+
+#include <utility>
 
 #define ID_BUTTON_PLAY      11
 #define ID_BUTTON_EJECT     10
@@ -37,9 +25,7 @@ CGUIDialogPlayEject::CGUIDialogPlayEject()
 {
 }
 
-CGUIDialogPlayEject::~CGUIDialogPlayEject()
-{
-}
+CGUIDialogPlayEject::~CGUIDialogPlayEject() = default;
 
 bool CGUIDialogPlayEject::OnMessage(CGUIMessage& message)
 {
@@ -58,7 +44,7 @@ bool CGUIDialogPlayEject::OnMessage(CGUIMessage& message)
     }
     if (iControl == ID_BUTTON_EJECT)
     {
-      CIoSupport::ToggleTray();
+      g_mediaManager.ToggleTray();
       return true;
     }
   }
@@ -96,13 +82,13 @@ bool CGUIDialogPlayEject::ShowAndGetInput(const CFileItem & item,
     return false;
 
   // Create the dialog
-  CGUIDialogPlayEject * pDialog = (CGUIDialogPlayEject *)g_windowManager.
+  CGUIDialogPlayEject * pDialog = (CGUIDialogPlayEject *)CServiceBroker::GetGUI()->GetWindowManager().
     GetWindow(WINDOW_DIALOG_PLAY_EJECT);
   if (!pDialog)
     return false;
 
   // Figure out Lines 1 and 2 of the dialog
-  CStdString strLine1, strLine2;
+  std::string strLine1, strLine2;
   CXBMCTinyXML discStubXML;
   if (discStubXML.LoadFile(item.GetPath()))
   {
@@ -117,21 +103,21 @@ bool CGUIDialogPlayEject::ShowAndGetInput(const CFileItem & item,
   }
 
   // Use the label for Line 1 if not defined
-  if (strLine1.IsEmpty())
+  if (strLine1.empty())
     strLine1 = item.GetLabel();
 
   // Setup dialog parameters
-  pDialog->SetHeading(219);
-  pDialog->SetLine(0, 429);
-  pDialog->SetLine(1, strLine1);
-  pDialog->SetLine(2, strLine2);
+  pDialog->SetHeading(CVariant{219});
+  pDialog->SetLine(0, CVariant{429});
+  pDialog->SetLine(1, CVariant{std::move(strLine1)});
+  pDialog->SetLine(2, CVariant{std::move(strLine2)});
   pDialog->SetChoice(ID_BUTTON_PLAY - 10, 208);
   pDialog->SetChoice(ID_BUTTON_EJECT - 10, 13391);
   if (uiAutoCloseTime)
     pDialog->SetAutoClose(uiAutoCloseTime);
 
   // Display the dialog
-  pDialog->DoModal();
+  pDialog->Open();
 
   return pDialog->IsConfirmed();
 }

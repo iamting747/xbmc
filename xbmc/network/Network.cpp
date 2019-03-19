@@ -1,39 +1,33 @@
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "system.h"
-#include "Network.h"
-#include "Application.h"
-#include "libscrobbler/lastfmscrobbler.h"
-#include "libscrobbler/librefmscrobbler.h"
-#include "utils/RssReader.h"
-#include "utils/log.h"
-#include "guilib/LocalizeStrings.h"
-#include "dialogs/GUIDialogKaiToast.h"
-
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-using namespace std;
+#include "Network.h"
+#include "ServiceBroker.h"
+#include "messaging/ApplicationMessenger.h"
+#include "network/NetworkServices.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "utils/log.h"
+#ifdef TARGET_WINDOWS
+#include "platform/win32/WIN32Util.h"
+#include "utils/CharsetConverter.h"
+#endif
+#ifdef TARGET_POSIX
+#include "platform/linux/XTimeUtils.h"
+#endif
+#include "utils/StringUtils.h"
+
+using namespace KODI::MESSAGING;
 
 /* slightly modified in_ether taken from the etherboot project (http://sourceforge.net/projects/etherboot) */
 bool in_ether (const char *bufp, unsigned char *addr)
@@ -92,17 +86,57 @@ bool in_ether (const char *bufp, unsigned char *addr)
   return true;
 }
 
-CNetwork::CNetwork()
+int NetworkAccessPoint::getQuality() const
 {
-   g_application.getApplicationMessenger().NetworkMessage(SERVICES_UP, 0);
+  // Cisco dBm lookup table (partially nonlinear)
+  // Source: "Converting Signal Strength Percentage to dBm Values, 2002"
+  int quality;
+  if (m_dBm >= -10) quality = 100;
+  else if (m_dBm >= -20) quality = 85 + (m_dBm + 20);
+  else if (m_dBm >= -30) quality = 77 + (m_dBm + 30);
+  else if (m_dBm >= -60) quality = 48 + (m_dBm + 60);
+  else if (m_dBm >= -98) quality = 13 + (m_dBm + 98);
+  else if (m_dBm >= -112) quality = 1 + (m_dBm + 112);
+  else quality = 0;
+  return quality;
 }
 
-CNetwork::~CNetwork()
+int NetworkAccessPoint::FreqToChannel(float frequency)
 {
-   g_application.getApplicationMessenger().NetworkMessage(SERVICES_DOWN, 0);
+  int IEEE80211Freq[] = {2412, 2417, 2422, 2427, 2432,
+                         2437, 2442, 2447, 2452, 2457,
+                         2462, 2467, 2472, 2484,
+                         5180, 5200, 5210, 5220, 5240, 5250,
+                         5260, 5280, 5290, 5300, 5320,
+                         5745, 5760, 5765, 5785, 5800, 5805, 5825};
+  int IEEE80211Ch[] =   {   1,    2,    3,    4,    5,
+                            6,    7,    8,    9,   10,
+                           11,   12,   13,   14,
+                           36,   40,   42,   44,   48,   50,
+                           52,   56,   58,   60,   64,
+                          149,  152,  153,  157,  160,  161,  165};
+  // Round frequency to the nearest MHz
+  int mod_chan = (int)(frequency / 1000000 + 0.5f);
+  for (unsigned int i = 0; i < sizeof(IEEE80211Freq) / sizeof(int); ++i)
+  {
+    if (IEEE80211Freq[i] == mod_chan)
+      return IEEE80211Ch[i];
+  }
+  return 0; // unknown
 }
 
-int CNetwork::ParseHex(char *str, unsigned char *addr)
+CNetworkBase::CNetworkBase() :
+  m_services(new CNetworkServices())
+{
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_NETWORKMESSAGE, SERVICES_UP, 0);
+}
+
+CNetworkBase::~CNetworkBase()
+{
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_NETWORKMESSAGE, SERVICES_DOWN, 0);
+}
+
+int CNetworkBase::ParseHex(char *str, unsigned char *addr)
 {
    int len = 0;
 
@@ -121,20 +155,55 @@ int CNetwork::ParseHex(char *str, unsigned char *addr)
    return len;
 }
 
-CStdString CNetwork::GetHostName(void)
+bool CNetworkBase::GetHostName(std::string& hostname)
 {
   char hostName[128];
   if (gethostname(hostName, sizeof(hostName)))
-    return CStdString("unknown");
-  else
-    return CStdString(hostName);
+    return false;
+
+#ifdef TARGET_WINDOWS
+  std::string hostStr;
+  g_charsetConverter.systemToUtf8(hostName, hostStr);
+  hostname = hostStr;
+#else
+  hostname = hostName;
+#endif
+  return true;
 }
 
-
-CNetworkInterface* CNetwork::GetFirstConnectedInterface()
+bool CNetworkBase::IsLocalHost(const std::string& hostname)
 {
-   vector<CNetworkInterface*>& ifaces = GetInterfaceList();
-   vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
+  if (hostname.empty())
+    return false;
+
+  if (StringUtils::StartsWith(hostname, "127.")
+      || (hostname == "::1")
+      || StringUtils::EqualsNoCase(hostname, "localhost"))
+    return true;
+
+  std::string myhostname;
+  if (GetHostName(myhostname)
+      && StringUtils::EqualsNoCase(hostname, myhostname))
+    return true;
+
+  std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
+  std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
+  while (iter != ifaces.end())
+  {
+    CNetworkInterface* iface = *iter;
+    if (iface && iface->GetCurrentIPAddress() == hostname)
+      return true;
+
+     ++iter;
+  }
+
+  return false;
+}
+
+CNetworkInterface* CNetworkBase::GetFirstConnectedInterface()
+{
+   std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
+   std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
    while (iter != ifaces.end())
    {
       CNetworkInterface* iface = *iter;
@@ -146,19 +215,19 @@ CNetworkInterface* CNetwork::GetFirstConnectedInterface()
    return NULL;
 }
 
-bool CNetwork::HasInterfaceForIP(unsigned long address)
+bool CNetworkBase::HasInterfaceForIP(unsigned long address)
 {
    unsigned long subnet;
    unsigned long local;
-   vector<CNetworkInterface*>& ifaces = GetInterfaceList();
-   vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
+   std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
+   std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
    while (iter != ifaces.end())
    {
       CNetworkInterface* iface = *iter;
       if (iface && iface->IsConnected())
       {
-         subnet = ntohl(inet_addr(iface->GetCurrentNetmask()));
-         local = ntohl(inet_addr(iface->GetCurrentIPAddress()));
+         subnet = ntohl(inet_addr(iface->GetCurrentNetmask().c_str()));
+         local = ntohl(inet_addr(iface->GetCurrentIPAddress().c_str()));
          if( (address & subnet) == (local & subnet) )
             return true;
       }
@@ -168,32 +237,25 @@ bool CNetwork::HasInterfaceForIP(unsigned long address)
    return false;
 }
 
-bool CNetwork::IsAvailable(bool wait /*= false*/)
+bool CNetworkBase::IsAvailable(void)
 {
-  if (wait)
-  {
-    // NOTE: Not implemented in linuxport branch as 99.9% of the time
-    //       we have the network setup already.  Trunk code has a busy
-    //       wait for 5 seconds here.
-  }
-
-  vector<CNetworkInterface*>& ifaces = GetInterfaceList();
+  std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
   return (ifaces.size() != 0);
 }
 
-bool CNetwork::IsConnected()
+bool CNetworkBase::IsConnected()
 {
    return GetFirstConnectedInterface() != NULL;
 }
 
-CNetworkInterface* CNetwork::GetInterfaceByName(CStdString& name)
+CNetworkInterface* CNetworkBase::GetInterfaceByName(const std::string& name)
 {
-   vector<CNetworkInterface*>& ifaces = GetInterfaceList();
-   vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
+   std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
+   std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
    while (iter != ifaces.end())
    {
       CNetworkInterface* iface = *iter;
-      if (iface && iface->GetName().Equals(name))
+      if (iface && iface->GetName() == name)
          return iface;
       ++iter;
    }
@@ -201,28 +263,25 @@ CNetworkInterface* CNetwork::GetInterfaceByName(CStdString& name)
    return NULL;
 }
 
-void CNetwork::NetworkMessage(EMESSAGE message, int param)
+void CNetworkBase::NetworkMessage(EMESSAGE message, int param)
 {
   switch( message )
   {
     case SERVICES_UP:
-    {
       CLog::Log(LOGDEBUG, "%s - Starting network services",__FUNCTION__);
-      StartServices();
-    }
-    break;
+      m_services->Start();
+      break;
+
     case SERVICES_DOWN:
-    {
       CLog::Log(LOGDEBUG, "%s - Signaling network services to stop",__FUNCTION__);
-      StopServices(false); //tell network services to stop, but don't wait for them yet
+      m_services->Stop(false); // tell network services to stop, but don't wait for them yet
       CLog::Log(LOGDEBUG, "%s - Waiting for network services to stop",__FUNCTION__);
-      StopServices(true); //wait for network services to stop
-    }
-    break;
+      m_services->Stop(true); // wait for network services to stop
+      break;
   }
 }
 
-bool CNetwork::WakeOnLan(const char* mac)
+bool CNetworkBase::WakeOnLan(const char* mac)
 {
   int i, j, packet;
   unsigned char ethaddr[8];
@@ -242,7 +301,7 @@ bool CNetwork::WakeOnLan(const char* mac)
     CLog::Log(LOGERROR, "%s - Unable to create socket (%s)", __FUNCTION__, strerror (errno));
     return false;
   }
- 
+
   // Set socket options
   struct sockaddr_in saddr;
   saddr.sin_family = AF_INET;
@@ -256,7 +315,7 @@ bool CNetwork::WakeOnLan(const char* mac)
     closesocket(packet);
     return false;
   }
- 
+
   // Build the magic packet (6 x 0xff + 16 x MAC address)
   ptr = buf;
   for (i = 0; i < 6; i++)
@@ -265,7 +324,7 @@ bool CNetwork::WakeOnLan(const char* mac)
   for (j = 0; j < 16; j++)
     for (i = 0; i < 6; i++)
       *ptr++ = ethaddr[i];
- 
+
   // Send the magic packet
   if (sendto (packet, (char *)buf, 102, 0, (struct sockaddr *)&saddr, sizeof (saddr)) < 0)
   {
@@ -279,67 +338,239 @@ bool CNetwork::WakeOnLan(const char* mac)
   return true;
 }
 
-void CNetwork::StartServices()
+// ping helper
+static const char* ConnectHostPort(SOCKET soc, const struct sockaddr_in& addr, struct timeval& timeOut, bool tryRead)
 {
-#ifdef HAS_TIME_SERVER
-  g_application.StartTimeServer();
+  // set non-blocking
+#ifdef TARGET_WINDOWS
+  u_long nonblocking = 1;
+  int result = ioctlsocket(soc, FIONBIO, &nonblocking);
+#else
+  int result = fcntl(soc, F_SETFL, fcntl(soc, F_GETFL) | O_NONBLOCK);
 #endif
-#ifdef HAS_WEB_SERVER
-  if (!g_application.StartWebServer())
-    CGUIDialogKaiToast::QueueNotification("DefaultIconWarning.png", g_localizeStrings.Get(33101), g_localizeStrings.Get(33100));
-#endif
-#ifdef HAS_UPNP
-  g_application.StartUPnP();
-#endif
-#ifdef HAS_EVENT_SERVER
-  if (!g_application.StartEventServer())
-    CGUIDialogKaiToast::QueueNotification("DefaultIconWarning.png", g_localizeStrings.Get(33102), g_localizeStrings.Get(33100));
-#endif
-#ifdef HAS_JSONRPC
-  if (!g_application.StartJSONRPCServer())
-    CGUIDialogKaiToast::QueueNotification("DefaultIconWarning.png", g_localizeStrings.Get(33103), g_localizeStrings.Get(33100));
-#endif
-#ifdef HAS_ZEROCONF
-  g_application.StartZeroconf();
-#endif
-#ifdef HAS_AIRPLAY
-  g_application.StartAirplayServer();
-#endif
-  CLastfmScrobbler::GetInstance()->Init();
-  CLibrefmScrobbler::GetInstance()->Init();
-  g_rssManager.Start();
-}
 
-void CNetwork::StopServices(bool bWait)
-{
-  if (bWait)
+  if (result != 0)
+    return "set non-blocking option failed";
+
+  result = connect(soc, (const struct sockaddr *)&addr, sizeof(addr)); // non-blocking connect, will fail ..
+
+  if (result < 0)
   {
-#ifdef HAS_TIME_SERVER
-    g_application.StopTimeServer();
+#ifdef TARGET_WINDOWS
+    if (WSAGetLastError() != WSAEWOULDBLOCK)
+#else
+    if (errno != EINPROGRESS)
 #endif
-#ifdef HAS_UPNP
-    g_application.StopUPnP(bWait);
-#endif
-#ifdef HAS_ZEROCONF
-    g_application.StopZeroconf();
-#endif
-#ifdef HAS_WEB_SERVER
-    g_application.StopWebServer();
-#endif    
-    CLastfmScrobbler::GetInstance()->Term();
-    CLibrefmScrobbler::GetInstance()->Term();
-    // smb.Deinit(); if any file is open over samba this will break.
+      return "unexpected connect fail";
 
-    g_rssManager.Stop();
+    { // wait for connect to complete
+      fd_set wset;
+      FD_ZERO(&wset);
+      FD_SET(soc, &wset);
+
+      result = select(FD_SETSIZE, 0, &wset, 0, &timeOut);
+    }
+
+    if (result < 0)
+      return "select fail";
+
+    if (result == 0) // timeout
+      return ""; // no error
+
+    { // verify socket connection state
+      int err_code = -1;
+      socklen_t code_len = sizeof (err_code);
+
+      result = getsockopt(soc, SOL_SOCKET, SO_ERROR, (char*) &err_code, &code_len);
+
+      if (result != 0)
+        return "getsockopt fail";
+
+      if (err_code != 0)
+        return ""; // no error, just not connected
+    }
   }
 
-#ifdef HAS_EVENT_SERVER
-  g_application.StopEventServer(bWait, false);
+  if (tryRead)
+  {
+    fd_set rset;
+    FD_ZERO(&rset);
+    FD_SET(soc, &rset);
+
+    result = select(FD_SETSIZE, &rset, 0, 0, &timeOut);
+
+    if (result > 0)
+    {
+      char message [32];
+
+      result = recv(soc, message, sizeof(message), 0);
+    }
+
+    if (result == 0)
+      return ""; // no reply yet
+
+    if (result < 0)
+      return "recv fail";
+  }
+
+  return 0; // success
+}
+
+bool CNetworkBase::PingHost(unsigned long ipaddr, unsigned short port, unsigned int timeOutMs, bool readability_check)
+{
+  if (port == 0) // use icmp ping
+    return PingHost (ipaddr, timeOutMs);
+
+  struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(port);
+  addr.sin_addr.s_addr = ipaddr;
+
+  SOCKET soc = socket(AF_INET, SOCK_STREAM, 0);
+
+  const char* err_msg = "invalid socket";
+
+  if (soc != INVALID_SOCKET)
+  {
+    struct timeval tmout;
+    tmout.tv_sec = timeOutMs / 1000;
+    tmout.tv_usec = (timeOutMs % 1000) * 1000;
+
+    err_msg = ConnectHostPort (soc, addr, tmout, readability_check);
+
+    (void) closesocket (soc);
+  }
+
+  if (err_msg && *err_msg)
+  {
+#ifdef TARGET_WINDOWS
+    std::string sock_err = CWIN32Util::WUSysMsg(WSAGetLastError());
+#else
+    std::string sock_err = strerror(errno);
 #endif
-#ifdef HAS_JSONRPC
-    g_application.StopJSONRPCServer(bWait);
+
+    CLog::Log(LOGERROR, "%s(%s:%d) - %s (%s)", __FUNCTION__, inet_ntoa(addr.sin_addr), port, err_msg, sock_err.c_str());
+  }
+
+  return err_msg == 0;
+}
+
+//creates, binds and listens tcp sockets on the desired port. Set bindLocal to
+//true to bind to localhost only.
+std::vector<SOCKET> CreateTCPServerSocket(const int port, const bool bindLocal, const int backlog, const char *callerName)
+{
+#ifdef WINSOCK_VERSION
+  int yes = 1;
+#else
+  unsigned int yes = 1;
 #endif
-#if defined(HAS_AIRPLAY) || defined(HAS_AIRTUNES)
-    g_application.StopAirplayServer(bWait);
-#endif
+
+  std::vector<SOCKET> sockets;
+  struct addrinfo* results = nullptr;
+
+  std::string sPort = StringUtils::Format("%d", port);
+  struct addrinfo hints = { 0 };
+  hints.ai_family = PF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_PASSIVE;
+  hints.ai_protocol = 0;
+
+  int error = getaddrinfo(bindLocal ? "localhost" : nullptr, sPort.c_str(), &hints, &results);
+  if (error != 0)
+    return sockets;
+
+  for (struct addrinfo* result = results; result != nullptr; result = result->ai_next)
+  {
+    SOCKET sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (sock == INVALID_SOCKET)
+      continue;
+
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
+    setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&yes), sizeof(yes));
+
+    if (bind(sock, result->ai_addr, result->ai_addrlen) != 0)
+    {
+      closesocket(sock);
+      CLog::Log(LOGDEBUG, "%s Server: Failed to bind %s serversocket", callerName, result->ai_family == AF_INET6 ? "IPv6" : "IPv4");
+      continue;
+    }
+
+    if (listen(sock, backlog) == 0)
+      sockets.push_back(sock);
+    else
+    {
+      closesocket(sock);
+      CLog::Log(LOGERROR, "%s Server: Failed to set listen", callerName);
+    }
+  }
+  freeaddrinfo(results);
+
+  if (sockets.empty())
+    CLog::Log(LOGERROR, "%s Server: Failed to create serversocket(s)", callerName);
+
+  return sockets;
+}
+
+void CNetworkBase::WaitForNet()
+{
+  const int timeout = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_POWERMANAGEMENT_WAITFORNETWORK);
+  if (timeout <= 0)
+    return; // wait for network is disabled
+
+  // check if we have at least one network interface to wait for
+  if (!IsAvailable())
+    return;
+
+  CLog::Log(LOGNOTICE, "%s: Waiting for a network interface to come up (Timeout: %d s)", __FUNCTION__, timeout);
+
+  const static int intervalMs = 200;
+  const int numMaxTries = (timeout * 1000) / intervalMs;
+
+  for(int i=0; i < numMaxTries; ++i)
+  {
+    if (i > 0)
+      Sleep(intervalMs);
+
+    if (IsConnected())
+    {
+      CLog::Log(LOGNOTICE, "%s: A network interface is up after waiting %d ms", __FUNCTION__, i * intervalMs);
+      return;
+    }
+  }
+
+  CLog::Log(LOGNOTICE, "%s: No network interface did come up within %d s... Giving up...", __FUNCTION__, timeout);
+}
+
+std::string CNetworkBase::GetIpStr(const struct sockaddr* sa)
+{
+  std::string result;
+  if (!sa)
+    return result;
+
+  char buffer[INET6_ADDRSTRLEN] = { 0 };
+  switch (sa->sa_family)
+  {
+  case AF_INET:
+    inet_ntop(AF_INET, &reinterpret_cast<const struct sockaddr_in *>(sa)->sin_addr, buffer, INET_ADDRSTRLEN);
+    break;
+  case AF_INET6:
+    inet_ntop(AF_INET6, &reinterpret_cast<const struct sockaddr_in6 *>(sa)->sin6_addr, buffer, INET6_ADDRSTRLEN);
+    break;
+  default:
+    return result;
+  }
+
+  result = buffer;
+  return result;
+}
+
+std::string CNetworkBase::GetMaskByPrefixLength(uint8_t prefixLength)
+{
+  if (prefixLength > 32)
+    return "";
+
+  struct sockaddr_in sa;
+  sa.sin_family = AF_INET;
+  sa.sin_addr.s_addr = htonl(~((1 << (32u - prefixLength)) - 1));;
+  return CNetworkBase::GetIpStr(reinterpret_cast<struct sockaddr*>(&sa));
 }

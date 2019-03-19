@@ -1,52 +1,35 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-
-#include "system.h"
-
-#ifdef HAS_DVD_DRIVE
 
 #include "cdioSupport.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
+#include "platform/Environment.h"
+#include <cdio/cdio.h>
 #include <cdio/logging.h>
 #include <cdio/util.h>
 #include <cdio/mmc.h>
 #include <cdio/cd_types.h>
 
-#if defined(_WIN32)
-#pragma comment(lib, "libcdio.dll.lib")
+#if defined(TARGET_WINDOWS)
+#pragma comment(lib, "libcdio.lib")
 #endif
 
 using namespace MEDIA_DETECT;
 
-CLibcdio* CLibcdio::m_pInstance = NULL;
-char *CLibcdio::s_defaultDevice = NULL;
+std::shared_ptr<CLibcdio> CLibcdio::m_pInstance;
 
 /* Some interesting sector numbers stored in the above buffer. */
 #define ISO_SUPERBLOCK_SECTOR  16  /* buffer[0] */
 #define UFS_SUPERBLOCK_SECTOR   4  /* buffer[2] */
 #define BOOT_SECTOR            17  /* buffer[3] */
 #define VCD_INFO_SECTOR       150  /* buffer[4] */
-#define UDFX_SECTOR          32  /* buffer[4] */
-#define UDF_ANCHOR_SECTOR   256  /* buffer[5] */
+#define UDF_ANCHOR_SECTOR     256  /* buffer[5] */
 
 
 signature_t CCdIoSupport::sigs[] =
@@ -65,7 +48,6 @@ signature_t CCdIoSupport::sigs[] =
     {3, 7, "EL TORITO", "BOOTABLE"},
     {4, 0, "VIDEO_CD", "VIDEO CD"},
     {4, 0, "SUPERVCD", "Chaoji VCD"},
-    {0, 0, "MICROSOFT*XBOX*MEDIA", "UDFX CD"},
     {0, 1, "BEA01", "UDF"},
     { 0 }
   };
@@ -73,7 +55,7 @@ signature_t CCdIoSupport::sigs[] =
 #undef DEBUG_CDIO
 
 static void
-xbox_cdio_log_handler (cdio_log_level_t level, const char message[])
+cdio_log_handler (cdio_log_level_t level, const char message[])
 {
 #ifdef DEBUG_CDIO
   switch (level)
@@ -103,9 +85,9 @@ xbox_cdio_log_handler (cdio_log_level_t level, const char message[])
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
-CLibcdio::CLibcdio()
+CLibcdio::CLibcdio(): s_defaultDevice(NULL)
 {
-  cdio_log_set_handler( xbox_cdio_log_handler );
+  cdio_log_set_handler( cdio_log_handler );
 }
 
 CLibcdio::~CLibcdio()
@@ -114,20 +96,16 @@ CLibcdio::~CLibcdio()
   s_defaultDevice = NULL;
 }
 
-void CLibcdio::RemoveInstance()
+void CLibcdio::ReleaseInstance()
 {
-  if (m_pInstance)
-  {
-    delete m_pInstance;
-    m_pInstance = NULL;
-  }
+  m_pInstance.reset();
 }
 
-CLibcdio* CLibcdio::GetInstance()
+std::shared_ptr<CLibcdio> CLibcdio::GetInstance()
 {
   if (!m_pInstance)
   {
-    m_pInstance = new CLibcdio();
+    m_pInstance = std::shared_ptr<CLibcdio>(new CLibcdio());
   }
   return m_pInstance;
 }
@@ -207,8 +185,8 @@ char* CLibcdio::GetDeviceFileName()
 {
   CSingleLock lock(*this);
 
-  // if we don't have a DVD device initially present (Darwin or a USB DVD drive), 
-  // we have to keep checking in case one appears.
+  // If We don't have a DVD device initially present (Darwin or a USB DVD drive),
+  // We have to keep checking in case one appears.
   if (s_defaultDevice && strlen(s_defaultDevice) == 0)
   {
     free(s_defaultDevice);
@@ -217,8 +195,9 @@ char* CLibcdio::GetDeviceFileName()
 
   if (s_defaultDevice == NULL)
   {
-    if (getenv("XBMC_DVD_DEVICE") != NULL)
-      s_defaultDevice = strdup(getenv("XBMC_DVD_DEVICE"));
+    std::string strEnvDvd = CEnvironment::getenv("KODI_DVD_DEVICE");
+    if (!strEnvDvd.empty())
+      s_defaultDevice = strdup(strEnvDvd.c_str());
     else
     {
       CdIo_t *p_cdio = ::cdio_open(NULL, DRIVER_UNKNOWN);
@@ -239,6 +218,7 @@ char* CLibcdio::GetDeviceFileName()
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 CCdIoSupport::CCdIoSupport()
+: cdio(nullptr)
 {
   m_cdio = CLibcdio::GetInstance();
   m_nFirstData = -1;        /* # of first data track */
@@ -255,18 +235,16 @@ CCdIoSupport::CCdIoSupport()
   m_nStartTrack = 0;
 }
 
-CCdIoSupport::~CCdIoSupport()
+CCdIoSupport::~CCdIoSupport() = default;
+
+bool CCdIoSupport::EjectTray()
 {
+  return false;
 }
 
-HRESULT CCdIoSupport::EjectTray()
+bool CCdIoSupport::CloseTray()
 {
-  return E_FAIL;
-}
-
-HRESULT CCdIoSupport::CloseTray()
-{
-  return E_FAIL;
+  return false;
 }
 
 HANDLE CCdIoSupport::OpenCDROM()
@@ -276,19 +254,19 @@ HANDLE CCdIoSupport::OpenCDROM()
   char* source_name = m_cdio->GetDeviceFileName();
   CdIo* cdio = ::cdio_open(source_name, DRIVER_UNKNOWN);
 
-  return (HANDLE) cdio;
+  return reinterpret_cast<HANDLE>(cdio);
 }
 
-HANDLE CCdIoSupport::OpenIMAGE( CStdString& strFilename )
+HANDLE CCdIoSupport::OpenIMAGE( std::string& strFilename )
 {
   CSingleLock lock(*m_cdio);
 
-  CdIo* cdio = ::cdio_open(strFilename, DRIVER_UNKNOWN);
+  CdIo* cdio = ::cdio_open(strFilename.c_str(), DRIVER_UNKNOWN);
 
-  return (HANDLE) cdio;
+  return reinterpret_cast<HANDLE>(cdio);
 }
 
-INT CCdIoSupport::ReadSector(HANDLE hDevice, DWORD dwSector, LPSTR lpczBuffer)
+int CCdIoSupport::ReadSector(HANDLE hDevice, DWORD dwSector, char* lpczBuffer)
 {
   CSingleLock lock(*m_cdio);
 
@@ -302,7 +280,7 @@ INT CCdIoSupport::ReadSector(HANDLE hDevice, DWORD dwSector, LPSTR lpczBuffer)
   return -1;
 }
 
-INT CCdIoSupport::ReadSectorMode2(HANDLE hDevice, DWORD dwSector, LPSTR lpczBuffer)
+int CCdIoSupport::ReadSectorMode2(HANDLE hDevice, DWORD dwSector, char* lpczBuffer)
 {
   CSingleLock lock(*m_cdio);
 
@@ -316,7 +294,7 @@ INT CCdIoSupport::ReadSectorMode2(HANDLE hDevice, DWORD dwSector, LPSTR lpczBuff
   return -1;
 }
 
-INT CCdIoSupport::ReadSectorCDDA(HANDLE hDevice, DWORD dwSector, LPSTR lpczBuffer)
+int CCdIoSupport::ReadSectorCDDA(HANDLE hDevice, DWORD dwSector, char* lpczBuffer)
 {
   CSingleLock lock(*m_cdio);
 
@@ -330,7 +308,7 @@ INT CCdIoSupport::ReadSectorCDDA(HANDLE hDevice, DWORD dwSector, LPSTR lpczBuffe
   return -1;
 }
 
-VOID CCdIoSupport::CloseCDROM(HANDLE hDevice)
+void CCdIoSupport::CloseCDROM(HANDLE hDevice)
 {
   CSingleLock lock(*m_cdio);
 
@@ -390,9 +368,6 @@ void CCdIoSupport::PrintAnalysis(int fs, int num_audio)
   case FS_3DO:
     CLog::Log(LOGINFO, "CD-ROM with Panasonic 3DO filesystem");
     break;
-  case FS_UDFX:
-    CLog::Log(LOGINFO, "CD-ROM with UDFX filesystem");
-    break;
   case FS_UNKNOWN:
     CLog::Log(LOGINFO, "CD-ROM with unknown filesystem");
     break;
@@ -404,8 +379,8 @@ void CCdIoSupport::PrintAnalysis(int fs, int num_audio)
   case FS_ISO_9660_INTERACTIVE:
   case FS_ISO_HFS:
   case FS_ISO_UDF:
-    CLog::Log(LOGINFO, "ISO 9660: %i blocks, label `%.32s'\n",
-              m_nIsofsSize, buffer[0] + 40);
+    CLog::Log(LOGINFO, "ISO 9660: %i blocks, label %s",
+              m_nIsofsSize, m_strDiscLabel.c_str());
     break;
   }
 
@@ -475,7 +450,7 @@ int CCdIoSupport::ReadBlock(int superblock, uint32_t offset, uint8_t bufnum, tra
   unsigned int track_sec_count = ::cdio_get_track_sec_count(cdio, track_num);
   memset(buffer[bufnum], 0, CDIO_CD_FRAMESIZE);
 
-  if ( track_sec_count < (UINT)superblock)
+  if ( track_sec_count < static_cast<unsigned int>(superblock))
   {
     ::cdio_debug("reading block %u skipped track %d has only %u sectors\n",
                superblock, track_num, track_sec_count);
@@ -506,7 +481,7 @@ bool CCdIoSupport::IsIt(int num)
   signature_t *sigp = &sigs[num];
   int len = strlen(sigp->sig_str);
 
-  /* TODO: check that num < largest sig. */
+  //! @todo check that num < largest sig.
   return 0 == memcmp(&buffer[sigp->buf_num][sigp->offset], sigp->sig_str, len);
 }
 
@@ -611,11 +586,6 @@ int CCdIoSupport::GuessFilesystem(int start_session, track_t track_num)
       ret = FS_EXT2;
       break;
 
-    case CDIO_FS_UDFX:
-      ret = FS_UDFX;
-      udf = true;
-      break;
-
     case CDIO_FS_UDF:
       ret = FS_UDF;
       udf = true;
@@ -645,18 +615,34 @@ int CCdIoSupport::GuessFilesystem(int start_session, track_t track_num)
 
 void CCdIoSupport::GetCdTextInfo(xbmc_cdtext_t &xcdt, int trackNum)
 {
+  // cdtext disabled for windows as some setup doesn't like mmc commands
+  // and stall for over a minute in cdio_get_cdtext 83
+#if !defined(TARGET_WINDOWS)
   CSingleLock lock(*m_cdio);
 
   // Get the CD-Text , if any
+#if defined(LIBCDIO_VERSION_NUM) && (LIBCDIO_VERSION_NUM >= 84)
+  cdtext_t *pcdtext = static_cast<cdtext_t*>( cdio_get_cdtext(cdio) );
+#else
+  //! @todo - remove after Ubuntu 16.04 (Xenial) is EOL
   cdtext_t *pcdtext = (cdtext_t *)::cdio_get_cdtext(cdio, trackNum);
+#endif
 
   if (pcdtext == NULL)
     return ;
 
-  // same ids used in libcdio and for our structure + the ids are consecutive make this copy loop safe.
+#if defined(LIBCDIO_VERSION_NUM) && (LIBCDIO_VERSION_NUM >= 84)
+  for (int i=0; i < MAX_CDTEXT_FIELDS; i++)
+    if (cdtext_get_const(pcdtext, (cdtext_field_t)i, trackNum))
+      xcdt[(cdtext_field_t)i] = cdtext_field2str((cdtext_field_t)i);
+#else
+  //! @todo - remove after Ubuntu 16.04 (Xenial) is EOL
+  // Same ids used in libcdio and for our structure + the ids are consecutive make this copy loop safe.
   for (int i = 0; i < MAX_CDTEXT_FIELDS; i++)
     if (pcdtext->field[i])
       xcdt[(cdtext_field_t)i] = pcdtext->field[(cdtext_field_t)i];
+#endif
+#endif // TARGET_WINDOWS
 }
 
 CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
@@ -717,6 +703,8 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
       ti.isofs_size = 0;
       ti.nJolietLevel = 0;
       ti.nFrames = 0;
+      ti.nMins = 0;
+      ti.nSecs = 0;
       info->SetTrackInformation( i, ti );
       CLog::Log(LOGDEBUG, "cdio_track_msf for track %i failed, I give up.", i);
       delete info;
@@ -732,11 +720,11 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
       m_nFs = FS_NO_DATA;
       int temp1 = ::cdio_get_track_lba(cdio, i) - CDIO_PREGAP_SECTORS;
       int temp2 = ::cdio_get_track_lba(cdio, i + 1) - CDIO_PREGAP_SECTORS;
-      // the length is the address of the second track minus the address of the first track
-      temp2 -= temp1;    // temp2 now has length of track1 in frames
+      // The length is the address of the second track minus the address of the first track
+      temp2 -= temp1;                  // temp2 now has length of track1 in frames
       ti.nMins = temp2 / (60 * 75);    // calculate the number of minutes
-      temp2 %= 60 * 75;    // calculate the left-over frames
-      ti.nSecs = temp2 / 75;    // calculate the number of seconds
+      temp2 %= 60 * 75;                // calculate the left-over frames
+      ti.nSecs = temp2 / 75;           // calculate the number of seconds
       if ( -1 == m_nFirstAudio)
         m_nFirstAudio = i;
 
@@ -757,10 +745,14 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
       if ( -1 == m_nFirstData)
         m_nFirstData = i;
     }
+    ti.nfsInfo = FS_NO_DATA;
     ti.ms_offset = 0;
     ti.isofs_size = 0;
     ti.nJolietLevel = 0;
     ti.nFrames = ::cdio_get_track_lba(cdio, i);
+    ti.nMins = 0;
+    ti.nSecs = 0;
+
     info->SetTrackInformation( i, ti );
     /* skip to leadout? */
     if (i == m_nNumTracks)
@@ -778,7 +770,7 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
   CLog::Log(LOGINFO, "CD Analysis Report");
   CLog::Log(LOGINFO, STRONG);
 
-  /* try to find out what sort of CD we have */
+  /* Try to find out what sort of CD we have */
   if (0 == m_nNumData)
   {
     /* no data track, may be a "real" audio CD or hidden track CD */
@@ -803,7 +795,7 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
   }
   else
   {
-    /* we have data track(s) */
+    /* We have data track(s) */
     for (j = 2, i = m_nFirstData; i <= m_nNumTracks; i++)
     {
       msf_t msf;
@@ -822,6 +814,8 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
           ti.isofs_size = 0;
           ti.nJolietLevel = 0;
           ti.nFrames = ::cdio_get_track_lba(cdio, i);
+          ti.nMins = 0;
+          ti.nSecs = 0;
           info->SetTrackInformation( i + 1, ti );
         }
       case TRACK_FORMAT_ERROR:
@@ -835,11 +829,11 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
 
       m_nStartTrack = (i == 1) ? 0 : ::cdio_msf_to_lsn(&msf);
 
-      /* save the start of the data area */
+      /* Save the start of the data area */
       if (i == m_nFirstData)
         m_nDataStart = m_nStartTrack;
 
-      /* skip tracks which belong to the current walked session */
+      /* Skip tracks which belong to the current walked session */
       if (m_nStartTrack < m_nDataStart + m_nIsofsSize)
         continue;
 
@@ -850,20 +844,22 @@ CCdInfo* CCdIoSupport::GetCdInfo(char* cDeviceFileName)
       ti.isofs_size = m_nIsofsSize;
       ti.nJolietLevel = m_nJolietLevel;
       ti.nFrames = ::cdio_get_track_lba(cdio, i);
+      ti.nMins = 0;
+      ti.nSecs = 0;
       info->SetDiscLabel(m_strDiscLabel);
 
 
       if (i > 1)
       {
-        /* track is beyond last session -> new session found */
+        /* Track is beyond last session -> new session found */
         m_nMsOffset = m_nStartTrack;
 
         CLog::Log(LOGINFO, "Session #%d starts at track %2i, LSN: %6i,"
                   " ISO 9660 blocks: %6i",
                   j++, i, m_nStartTrack, m_nIsofsSize);
 
-        CLog::Log(LOGINFO, "ISO 9660: %i blocks, label '%.32s'\n",
-                  m_nIsofsSize, buffer[0] + 40);
+        CLog::Log(LOGINFO, "ISO 9660: %i blocks, label %s",
+                  m_nIsofsSize, m_strDiscLabel.c_str());
         m_nFs |= MULTISESSION;
         ti.nfsInfo = m_nFs;
       }
@@ -896,7 +892,7 @@ int CCdIoSupport::CddbDecDigitSum(int n)
 }
 
 // Return the number of seconds (discarding frame portion) of an MSF
-UINT CCdIoSupport::MsfSeconds(msf_t *msf)
+unsigned int CCdIoSupport::MsfSeconds(msf_t *msf)
 {
   CSingleLock lock(*m_cdio);
 
@@ -904,13 +900,13 @@ UINT CCdIoSupport::MsfSeconds(msf_t *msf)
 }
 
 
-// Compute the CDDB disk ID for an Audio disk.  This is a funny checksum
-// consisting of the concatenation of 3 things:
-//    the sum of the decimal digits of sizes of all tracks,
-//    the total length of the disk, and
-//    the number of tracks.
+// Compute the CDDB disk ID for an Audio disk.
+// This is a funny checksum consisting of the concatenation of 3 things:
+//    The sum of the decimal digits of sizes of all tracks,
+//    The total length of the disk, and
+//    The number of tracks.
 
-ULONG CCdIoSupport::CddbDiscId()
+uint32_t CCdIoSupport::CddbDiscId()
 {
   CSingleLock lock(*m_cdio);
 
@@ -931,6 +927,3 @@ ULONG CCdIoSupport::CddbDiscId()
 
   return ((n % 0xff) << 24 | t << 8 | m_nNumTracks);
 }
-
-#endif
-

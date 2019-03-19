@@ -1,32 +1,22 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "PictureInfoLoader.h"
 #include "PictureInfoTag.h"
-#include "settings/GUISettings.h"
+#include "ServiceBroker.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "FileItem.h"
 
 CPictureInfoLoader::CPictureInfoLoader()
 {
   m_mapFileItems = new CFileItemList;
+  m_tagReads = 0;
 }
 
 CPictureInfoLoader::~CPictureInfoLoader()
@@ -43,13 +33,41 @@ void CPictureInfoLoader::OnLoaderStart()
   m_mapFileItems->SetFastLookup(true);
 
   m_tagReads = 0;
-  m_loadTags = g_guiSettings.GetBool("pictures.usetags");
+  m_loadTags = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_PICTURES_USETAGS);
 
   if (m_pProgressCallback)
     m_pProgressCallback->SetProgressMax(m_pVecItems->GetFileCount());
 }
 
 bool CPictureInfoLoader::LoadItem(CFileItem* pItem)
+{
+  bool result  = LoadItemCached(pItem);
+       result |= LoadItemLookup(pItem);
+
+  return result;
+}
+
+bool CPictureInfoLoader::LoadItemCached(CFileItem* pItem)
+{
+  if (!pItem->IsPicture() || pItem->IsZIP() || pItem->IsRAR() || pItem->IsCBR() || pItem->IsCBZ() || pItem->IsInternetStream() || pItem->IsVideo())
+    return false;
+
+  if (pItem->HasPictureInfoTag())
+    return true;
+
+  // Check the cached item
+  CFileItemPtr mapItem = (*m_mapFileItems)[pItem->GetPath()];
+  if (mapItem && mapItem->m_dateTime==pItem->m_dateTime && mapItem->HasPictureInfoTag())
+  { // Query map if we previously cached the file on HD
+    *pItem->GetPictureInfoTag() = *mapItem->GetPictureInfoTag();
+    pItem->SetArt("thumb", mapItem->GetArt("thumb"));
+    return true;
+  }
+
+  return true;
+}
+
+bool CPictureInfoLoader::LoadItemLookup(CFileItem* pItem)
 {
   if (m_pProgressCallback && !pItem->m_bIsFolder)
     m_pProgressCallback->SetProgressAdvance();
@@ -58,16 +76,7 @@ bool CPictureInfoLoader::LoadItem(CFileItem* pItem)
     return false;
 
   if (pItem->HasPictureInfoTag())
-    return true;
-
-  // first check the cached item
-  CFileItemPtr mapItem = (*m_mapFileItems)[pItem->GetPath()];
-  if (mapItem && mapItem->m_dateTime==pItem->m_dateTime && mapItem->HasPictureInfoTag())
-  { // Query map if we previously cached the file on HD
-    *pItem->GetPictureInfoTag() = *mapItem->GetPictureInfoTag();
-    pItem->SetThumbnailImage(mapItem->GetThumbnailImage());
-    return true;
-  }
+    return false;
 
   if (m_loadTags)
   { // Nothing found, load tag from file

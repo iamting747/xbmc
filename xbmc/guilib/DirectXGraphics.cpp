@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "DirectXGraphics.h"
@@ -33,23 +20,27 @@ void XPhysicalFree(LPVOID lpAddress)
   free(lpAddress);
 }
 
-D3DFORMAT GetD3DFormat(XB_D3DFORMAT format)
+DWORD GetD3DFormat(XB_D3DFORMAT format)
 {
+#ifndef MAKEFOURCC
+#define MAKEFOURCC(ch0, ch1, ch2, ch3)                              \
+                ((DWORD)(BYTE)(ch0) | ((DWORD)(BYTE)(ch1) << 8) |   \
+                ((DWORD)(BYTE)(ch2) << 16) | ((DWORD)(BYTE)(ch3) << 24 ))
+#endif
   switch (format)
   {
   case XB_D3DFMT_A8R8G8B8:
   case XB_D3DFMT_LIN_A8R8G8B8:
-    return D3DFMT_LIN_A8R8G8B8;
-  case XB_D3DFMT_DXT1:
-    return D3DFMT_DXT1;
-  case XB_D3DFMT_DXT2:
-    return D3DFMT_DXT2;
-  case XB_D3DFMT_DXT4:
-    return D3DFMT_DXT4;
   case XB_D3DFMT_P8:
-    return D3DFMT_LIN_A8R8G8B8;
+    return 21;
+  case XB_D3DFMT_DXT1:
+    return MAKEFOURCC('D', 'X', 'T', '1');
+  case XB_D3DFMT_DXT2:
+    return MAKEFOURCC('D', 'X', 'T', '2');
+  case XB_D3DFMT_DXT4:
+    return MAKEFOURCC('D', 'X', 'T', '4');
   default:
-    return D3DFMT_UNKNOWN;
+    return 0;
   }
 }
 
@@ -118,6 +109,9 @@ bool IsSwizzledFormat(XB_D3DFORMAT format)
 // Currently only works for 32bit and 8bit textures, with power of 2 width and height
 void Unswizzle(const void *src, unsigned int depth, unsigned int width, unsigned int height, void *dest)
 {
+  if (height == 0 || width == 0)
+    return;
+
   for (UINT y = 0; y < height; y++)
   {
     UINT sy = 0;

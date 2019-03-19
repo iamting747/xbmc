@@ -1,62 +1,52 @@
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 #include "AutorunMediaJob.h"
 #include "Application.h"
-#include "interfaces/Builtins.h"
+#include "ServiceBroker.h"
+#include "interfaces/builtins/Builtins.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/LocalizeStrings.h"
 #include "dialogs/GUIDialogSelect.h"
-#include "guilib/Key.h"
+#include "utils/StringUtils.h"
+#include "utils/Variant.h"
 
-CAutorunMediaJob::CAutorunMediaJob(const CStdString &label, const CStdString &path)
+CAutorunMediaJob::CAutorunMediaJob(const std::string &label, const std::string &path):
+  m_path(path),
+  m_label(label)
 {
-  m_label = label;
-  m_path  = path;
 }
 
 bool CAutorunMediaJob::DoWork()
 {
-  CGUIDialogSelect* pDialog= (CGUIDialogSelect*)g_windowManager.GetWindow(WINDOW_DIALOG_SELECT);
+  CGUIDialogSelect* pDialog= CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogSelect>(WINDOW_DIALOG_SELECT);
 
   // wake up and turn off the screensaver if it's active
   g_application.WakeUpScreenSaverAndDPMS();
 
   pDialog->Reset();
-  if (m_label.size() > 0)
-    pDialog->SetHeading(m_label);
+  if (!m_label.empty())
+    pDialog->SetHeading(CVariant{m_label});
   else
-    pDialog->SetHeading("New media detected");
+    pDialog->SetHeading(CVariant{g_localizeStrings.Get(21331)});
 
-  pDialog->Add("Browse videos");
-  pDialog->Add("Browse music");
-  pDialog->Add("Browse pictures");
-  pDialog->Add("Browse files");
+  pDialog->Add(g_localizeStrings.Get(21332));
+  pDialog->Add(g_localizeStrings.Get(21333));
+  pDialog->Add(g_localizeStrings.Get(21334));
+  pDialog->Add(g_localizeStrings.Get(21335));
 
-  pDialog->DoModal();
+  pDialog->Open();
 
-  int selection = pDialog->GetSelectedLabel();
+  int selection = pDialog->GetSelectedItem();
   if (selection >= 0)
   {
-    CStdString strAction;
-    strAction.Format("ActivateWindow(%s, %s)", GetWindowString(selection), m_path.c_str());
-    CBuiltins::Execute(strAction);
+    std::string strAction = StringUtils::Format("ActivateWindow(%s, %s)", GetWindowString(selection), m_path.c_str());
+    CBuiltins::GetInstance().Execute(strAction);
   }
 
   return true;
@@ -67,9 +57,9 @@ const char *CAutorunMediaJob::GetWindowString(int selection)
   switch (selection)
   {
     case 0:
-      return "VideoFiles";
+      return "Videos";
     case 1:
-      return "MusicFiles";
+      return "Music";
     case 2:
       return "Pictures";
     case 3:

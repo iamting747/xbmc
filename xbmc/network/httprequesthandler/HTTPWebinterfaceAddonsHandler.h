@@ -1,41 +1,38 @@
-#pragma once
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "IHTTPRequestHandler.h"
+#pragma once
+
+#include <string>
+
+#include "network/httprequesthandler/IHTTPRequestHandler.h"
 
 class CHTTPWebinterfaceAddonsHandler : public IHTTPRequestHandler
 {
 public:
-  CHTTPWebinterfaceAddonsHandler() { };
-  
-  virtual IHTTPRequestHandler* GetInstance() { return new CHTTPWebinterfaceAddonsHandler(); }
-  virtual bool CheckHTTPRequest(const HTTPRequest &request);
-  virtual int HandleHTTPRequest(const HTTPRequest &request);
+  CHTTPWebinterfaceAddonsHandler() = default;
+  ~CHTTPWebinterfaceAddonsHandler() override = default;
 
-  virtual void* GetHTTPResponseData() const { return (void *)m_response.c_str(); };
-  virtual size_t GetHTTPResonseDataLength() const { return m_response.size(); }
+  IHTTPRequestHandler* Create(const HTTPRequest &request) const override { return new CHTTPWebinterfaceAddonsHandler(request); }
+  bool CanHandleRequest(const HTTPRequest &request) const override;
 
-  virtual int GetPriority() const { return 1; }
+  int HandleRequest() override;
+
+  HttpResponseRanges GetResponseData() const override;
+
+  int GetPriority() const override { return 4; }
+
+protected:
+  explicit CHTTPWebinterfaceAddonsHandler(const HTTPRequest &request)
+    : IHTTPRequestHandler(request)
+  { }
 
 private:
-  std::string m_response;
+  std::string m_responseData;
+  CHttpResponseRange m_responseRange;
 };

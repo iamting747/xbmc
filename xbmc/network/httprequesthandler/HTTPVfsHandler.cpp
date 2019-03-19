@@ -1,58 +1,85 @@
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "HTTPVfsHandler.h"
-#include "network/WebServer.h"
+#include "MediaSource.h"
 #include "URL.h"
 #include "filesystem/File.h"
+#include "network/WebServer.h"
+#include "settings/MediaSourceSettings.h"
+#include "utils/URIUtils.h"
 
-using namespace std;
-
-bool CHTTPVfsHandler::CheckHTTPRequest(const HTTPRequest &request)
+CHTTPVfsHandler::CHTTPVfsHandler(const HTTPRequest &request)
+  : CHTTPFileHandler(request)
 {
-  return (request.url.find("/vfs") == 0);
-}
+  std::string file;
+  int responseStatus = MHD_HTTP_BAD_REQUEST;
 
-int CHTTPVfsHandler::HandleHTTPRequest(const HTTPRequest &request)
-{
-  if (request.url.size() > 5)
+  if (m_request.pathUrl.size() > 5)
   {
-    m_path = request.url.substr(5);
+    file = m_request.pathUrl.substr(5);
 
-    if (XFILE::CFile::Exists(m_path))
+    if (XFILE::CFile::Exists(file))
     {
-      m_responseCode = MHD_HTTP_OK;
-      m_responseType = HTTPFileDownload;
+      bool accessible = false;
+      if (file.substr(0, 8) == "image://")
+        accessible = true;
+      else
+      {
+        std::string sourceTypes[] = { "video", "music", "pictures" };
+        unsigned int size = sizeof(sourceTypes) / sizeof(std::string);
+
+        std::string realPath = URIUtils::GetRealPath(file);
+        // for rar:// and zip:// paths we need to extract the path to the archive instead of using the VFS path
+        while (URIUtils::IsInArchive(realPath))
+          realPath = CURL(realPath).GetHostName();
+
+        VECSOURCES *sources = NULL;
+        for (unsigned int index = 0; index < size && !accessible; index++)
+        {
+          sources = CMediaSourceSettings::GetInstance().GetSources(sourceTypes[index]);
+          if (sources == NULL)
+            continue;
+
+          for (VECSOURCES::const_iterator source = sources->begin(); source != sources->end() && !accessible; ++source)
+          {
+            // don't allow access to locked / disabled sharing sources
+            if (source->m_iHasLock == 2 || !source->m_allowSharing)
+              continue;
+
+            for (std::vector<std::string>::const_iterator path = source->vecPaths.begin(); path != source->vecPaths.end(); ++path)
+            {
+              std::string realSourcePath = URIUtils::GetRealPath(*path);
+              if (URIUtils::PathHasParent(realPath, realSourcePath, true))
+              {
+                accessible = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (accessible)
+        responseStatus = MHD_HTTP_OK;
+      // the file exists but not in one of the defined sources so we deny access to it
+      else
+        responseStatus = MHD_HTTP_UNAUTHORIZED;
     }
     else
-    {
-      m_responseCode = MHD_HTTP_NOT_FOUND;
-      m_responseType = HTTPError;
-    }
-  }
-  else
-  {
-    m_responseCode = MHD_HTTP_BAD_REQUEST;
-    m_responseType = HTTPError;
+      responseStatus = MHD_HTTP_NOT_FOUND;
   }
 
-  return MHD_YES;
+  // set the file and the HTTP response status
+  SetFile(file, responseStatus);
+}
+
+bool CHTTPVfsHandler::CanHandleRequest(const HTTPRequest &request) const
+{
+  return request.pathUrl.find("/vfs") == 0;
 }

@@ -1,40 +1,28 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "system.h"
-
-#ifdef HAS_EVENT_SERVER
-
 #include "EventServer.h"
-#include "EventPacket.h"
 #include "EventClient.h"
+#include "EventPacket.h"
 #include "Socket.h"
-#include "threads/CriticalSection.h"
-#include "Application.h"
-#include "GUIInfoManager.h"
-#include "interfaces/Builtins.h"
-#include "input/ButtonTranslator.h"
-#include "threads/SingleLock.h"
 #include "Zeroconf.h"
 #include "guilib/GUIAudioManager.h"
+#include "input/actions/ActionTranslator.h"
+#include "input/Key.h"
+#include "interfaces/builtins/Builtins.h"
+#include "threads/SingleLock.h"
+#include "utils/log.h"
+#include "utils/SystemInfo.h"
+#include "Application.h"
+#include "ServiceBroker.h"
+#include "Util.h"
+
+#include <cassert>
 #include <map>
 #include <queue>
 
@@ -42,13 +30,12 @@ using namespace EVENTSERVER;
 using namespace EVENTPACKET;
 using namespace EVENTCLIENT;
 using namespace SOCKETS;
-using namespace std;
 
 /************************************************************************/
 /* CEventServer                                                         */
 /************************************************************************/
 CEventServer* CEventServer::m_pInstance = NULL;
-CEventServer::CEventServer() : CThread("CEventServer")
+CEventServer::CEventServer() : CThread("EventServer")
 {
   m_pSocket       = NULL;
   m_pPacketBuffer = NULL;
@@ -81,17 +68,16 @@ CEventServer* CEventServer::GetInstance()
 void CEventServer::StartServer()
 {
   CSingleLock lock(m_critSection);
-  if(m_bRunning)
+  if (m_bRunning)
     return;
 
   // set default port
-  string port = (const char*)g_guiSettings.GetString("services.esport");
-  assert(port.length());
-  m_iPort = atoi(port.c_str());
+  const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  m_iPort = settings->GetInt(CSettings::SETTING_SERVICES_ESPORT);
   assert(m_iPort <= 65535 && m_iPort >= 1);
 
   // max clients
-  m_iMaxClients = g_guiSettings.GetInt("services.esmaxclients");
+  m_iMaxClients = settings->GetInt(CSettings::SETTING_SERVICES_ESMAXCLIENTS);
   if (m_iMaxClients < 0)
   {
     CLog::Log(LOGERROR, "ES: Invalid maximum number of clients specified %d", m_iMaxClients);
@@ -123,7 +109,7 @@ void CEventServer::Cleanup()
   }
   CSingleLock lock(m_critSection);
 
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
   while (iter != m_clients.end())
   {
     if (iter->second)
@@ -153,12 +139,10 @@ void CEventServer::Process()
 
 void CEventServer::Run()
 {
-  CAddress any_addr;
   CSocketListener listener;
   int packetSize = 0;
-  std::map<std::string, std::string> txt;  
 
-  CLog::Log(LOGNOTICE, "ES: Starting UDP Event server on %s:%d", any_addr.Address(), m_iPort);
+  CLog::Log(LOGNOTICE, "ES: Starting UDP Event server on port %d", m_iPort);
 
   Cleanup();
 
@@ -178,22 +162,24 @@ void CEventServer::Run()
   }
 
   // bind to IP and start listening on port
-  int port_range = g_guiSettings.GetInt("services.esportrange");
+  const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  int port_range = settings->GetInt(CSettings::SETTING_SERVICES_ESPORTRANGE);
   if (port_range < 1 || port_range > 100)
   {
     CLog::Log(LOGERROR, "ES: Invalid port range specified %d, defaulting to 10", port_range);
     port_range = 10;
   }
-  if (!m_pSocket->Bind(any_addr, m_iPort, port_range))
+  if (!m_pSocket->Bind(!settings->GetBool(CSettings::SETTING_SERVICES_ESALLINTERFACES), m_iPort, port_range))
   {
     CLog::Log(LOGERROR, "ES: Could not listen on port %d", m_iPort);
     return;
   }
 
   // publish service
+  std::vector<std::pair<std::string, std::string> > txt;
   CZeroconf::GetInstance()->PublishService("servers.eventserver",
                                "_xbmc-events._udp",
-                               g_infoManager.GetLabel(SYSTEM_FRIENDLY_NAME),
+                               CSysInfo::GetDeviceName(),
                                m_iPort,
                                txt);
 
@@ -263,7 +249,7 @@ void CEventServer::ProcessPacket(CAddress& addr, int pSize)
   CSingleLock lock(m_critSection);
 
   // first check if we have a client for this address
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.find(clientToken);
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.find(clientToken);
 
   if ( iter == m_clients.end() )
   {
@@ -291,7 +277,7 @@ void CEventServer::ProcessPacket(CAddress& addr, int pSize)
 void CEventServer::RefreshClients()
 {
   CSingleLock lock(m_critSection);
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
 
   while ( iter != m_clients.end() )
   {
@@ -309,7 +295,7 @@ void CEventServer::RefreshClients()
       {
         iter->second->RefreshSettings();
       }
-      iter++;
+      ++iter;
     }
   }
   m_bRefreshSettings = false;
@@ -318,12 +304,12 @@ void CEventServer::RefreshClients()
 void CEventServer::ProcessEvents()
 {
   CSingleLock lock(m_critSection);
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
 
   while (iter != m_clients.end())
   {
     iter->second->ProcessEvents();
-    iter++;
+    ++iter;
   }
 }
 
@@ -332,7 +318,7 @@ bool CEventServer::ExecuteNextAction()
   CSingleLock lock(m_critSection);
 
   CEventAction actionEvent;
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
 
   while (iter != m_clients.end())
   {
@@ -343,39 +329,42 @@ bool CEventServer::ExecuteNextAction()
       switch(actionEvent.actionType)
       {
       case AT_EXEC_BUILTIN:
-        CBuiltins::Execute(actionEvent.actionName);
+        CBuiltins::GetInstance().Execute(actionEvent.actionName);
         break;
 
       case AT_BUTTON:
         {
-          int actionID;
-          CButtonTranslator::TranslateActionString(actionEvent.actionName.c_str(), actionID);
+          unsigned int actionID;
+          CActionTranslator::TranslateString(actionEvent.actionName, actionID);
           CAction action(actionID, 1.0f, 0.0f, actionEvent.actionName);
-          g_audioManager.PlayActionSound(action);
+          CGUIComponent* gui = CServiceBroker::GetGUI();
+          if (gui)
+            gui->GetAudioManager().PlayActionSound(action);
+
           g_application.OnAction(action);
         }
         break;
       }
       return true;
     }
-    iter++;
+    ++iter;
   }
 
   return false;
 }
 
-unsigned short CEventServer::GetButtonCode(std::string& strMapName, bool& isAxis, float& fAmount)
+unsigned int CEventServer::GetButtonCode(std::string& strMapName, bool& isAxis, float& fAmount, bool &isJoystick)
 {
   CSingleLock lock(m_critSection);
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
-  unsigned short bcode = 0;
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
+  unsigned int bcode = 0;
 
   while (iter != m_clients.end())
   {
-    bcode = iter->second->GetButtonCode(strMapName, isAxis, fAmount);
+    bcode = iter->second->GetButtonCode(strMapName, isAxis, fAmount, isJoystick);
     if (bcode)
       return bcode;
-    iter++;
+    ++iter;
   }
   return bcode;
 }
@@ -383,15 +372,13 @@ unsigned short CEventServer::GetButtonCode(std::string& strMapName, bool& isAxis
 bool CEventServer::GetMousePos(float &x, float &y)
 {
   CSingleLock lock(m_critSection);
-  map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
+  std::map<unsigned long, CEventClient*>::iterator iter = m_clients.begin();
 
   while (iter != m_clients.end())
   {
     if (iter->second->GetMousePos(x, y))
       return true;
-    iter++;
+    ++iter;
   }
   return false;
 }
-
-#endif // HAS_EVENT_SERVER

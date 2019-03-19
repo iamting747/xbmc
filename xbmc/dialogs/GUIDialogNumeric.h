@@ -1,27 +1,23 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <cstdint>
+#include "PlatformDefs.h"
 #include "guilib/GUIDialog.h"
+
+enum class InputVerificationResult
+{
+  CANCELED,
+  FAILED,
+  SUCCESS
+};
 
 class CGUIDialogNumeric :
       public CGUIDialog
@@ -29,31 +25,37 @@ class CGUIDialogNumeric :
 public:
   enum INPUT_MODE { INPUT_TIME = 1, INPUT_DATE, INPUT_IP_ADDRESS, INPUT_PASSWORD, INPUT_NUMBER, INPUT_TIME_SECONDS };
   CGUIDialogNumeric(void);
-  virtual ~CGUIDialogNumeric(void);
-  virtual bool OnMessage(CGUIMessage& message);
-  virtual bool OnAction(const CAction &action);
-  virtual bool OnBack(int actionID);
-  virtual void FrameMove();
+  ~CGUIDialogNumeric(void) override;
+  bool OnMessage(CGUIMessage& message) override;
+  bool OnAction(const CAction &action) override;
+  bool OnBack(int actionID) override;
+  void FrameMove() override;
 
   bool IsConfirmed() const;
   bool IsCanceled() const;
+  bool IsInputHidden() const { return m_mode == INPUT_PASSWORD; };
 
-  static bool ShowAndVerifyNewPassword(CStdString& strNewPassword);
-  static int ShowAndVerifyPassword(CStdString& strPassword, const CStdString& strHeading, int iRetries);
-  static bool ShowAndVerifyInput(CStdString& strPassword, const CStdString& strHeading, bool bGetUserInput);
+  static bool ShowAndVerifyNewPassword(std::string& strNewPassword);
+  static int ShowAndVerifyPassword(std::string& strPassword, const std::string& strHeading, int iRetries);
+  static InputVerificationResult ShowAndVerifyInput(std::string& strPassword, const std::string& strHeading, bool bGetUserInput);
 
-  void SetHeading(const CStdString &strHeading);
-  void SetMode(INPUT_MODE mode, void *initial);
-  void GetOutput(void *output);
+  void SetHeading(const std::string &strHeading);
+  void SetMode(INPUT_MODE mode, const SYSTEMTIME &initial);
+  void SetMode(INPUT_MODE mode, const std::string &initial);
+  SYSTEMTIME GetOutput() const;
+  std::string GetOutputString() const;
 
-  static bool ShowAndGetTime(SYSTEMTIME &time, const CStdString &heading);
-  static bool ShowAndGetDate(SYSTEMTIME &date, const CStdString &heading);
-  static bool ShowAndGetIPAddress(CStdString &IPAddress, const CStdString &heading);
-  static bool ShowAndGetNumber(CStdString& strInput, const CStdString &strHeading);
-  static bool ShowAndGetSeconds(CStdString& timeString, const CStdString &heading);
+  static bool ShowAndGetTime(SYSTEMTIME &time, const std::string &heading);
+  static bool ShowAndGetDate(SYSTEMTIME &date, const std::string &heading);
+  static bool ShowAndGetIPAddress(std::string &IPAddress, const std::string &heading);
+  static bool ShowAndGetNumber(std::string& strInput, const std::string &strHeading, unsigned int iAutoCloseTimeoutMs = 0);
+  static bool ShowAndGetSeconds(std::string& timeString, const std::string &heading);
 
 protected:
-  void OnNumber(unsigned int num);
+  void OnInitWindow() override;
+  void OnDeinitWindow(int nextWindowID) override;
+
+  void OnNumber(uint32_t num);
   void VerifyDate(bool checkYear);
   void OnNext();
   void OnPrevious();
@@ -61,14 +63,19 @@ protected:
   void OnOK();
   void OnCancel();
 
+  void HandleInputIP(uint32_t num);
+  void HandleInputDate(uint32_t num);
+  void HandleInputSeconds(uint32_t num);
+  void HandleInputTime(uint32_t num);
+
   bool m_bConfirmed;
   bool m_bCanceled;
 
   INPUT_MODE m_mode;                // the current input mode
   SYSTEMTIME m_datetime;            // for time and date modes
-  WORD m_ip[4];                     // for ip address mode
-  unsigned int m_block;             // for time, date, and IP methods.
-  unsigned int m_lastblock;
+  uint8_t m_ip[4];                  // for ip address mode
+  uint32_t m_block;             // for time, date, and IP methods.
+  uint32_t m_lastblock;
   bool m_dirty;                     // true if the current block has been changed.
-  CStdString m_number;              ///< for number or password input
+  std::string m_number;              ///< for number or password input
 };

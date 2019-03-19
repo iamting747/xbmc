@@ -1,28 +1,15 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "DNSNameCache.h"
-#include "Application.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
+#include "utils/StringUtils.h"
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -32,19 +19,22 @@ CDNSNameCache g_DNSCache;
 
 CCriticalSection CDNSNameCache::m_critical;
 
-CDNSNameCache::CDNSNameCache(void)
-{}
+CDNSNameCache::CDNSNameCache(void) = default;
 
-CDNSNameCache::~CDNSNameCache(void)
-{}
+CDNSNameCache::~CDNSNameCache(void) = default;
 
-bool CDNSNameCache::Lookup(const CStdString& strHostName, CStdString& strIpAddress)
+bool CDNSNameCache::Lookup(const std::string& strHostName, std::string& strIpAddress)
 {
+  if (strHostName.empty() && strIpAddress.empty())
+    return false;
+
   // first see if this is already an ip address
   unsigned long address = inet_addr(strHostName.c_str());
+  strIpAddress.clear();
+
   if (address != INADDR_NONE)
   {
-    strIpAddress.Format("%d.%d.%d.%d", (address & 0xFF), (address & 0xFF00) >> 8, (address & 0xFF0000) >> 16, (address & 0xFF000000) >> 24 );
+    strIpAddress = StringUtils::Format("%lu.%lu.%lu.%lu", (address & 0xFF), (address & 0xFF00) >> 8, (address & 0xFF0000) >> 16, (address & 0xFF000000) >> 24 );
     return true;
   }
 
@@ -52,13 +42,13 @@ bool CDNSNameCache::Lookup(const CStdString& strHostName, CStdString& strIpAddre
   if(g_DNSCache.GetCached(strHostName, strIpAddress))
     return true;
 
-#ifndef _WIN32
+#if !defined(TARGET_WINDOWS) && defined(HAS_FILESYSTEM_SMB)
   // perform netbios lookup (win32 is handling this via gethostbyname)
   char nmb_ip[100];
   char line[200];
 
-  CStdString cmd = "nmblookup " + strHostName;
-  FILE* fp = popen(cmd, "r");
+  std::string cmd = "nmblookup " + strHostName;
+  FILE* fp = popen(cmd.c_str(), "r");
   if (fp)
   {
     while (fgets(line, sizeof line, fp))
@@ -69,10 +59,10 @@ bool CDNSNameCache::Lookup(const CStdString& strHostName, CStdString& strIpAddre
           strIpAddress = nmb_ip;
       }
     }
+    pclose(fp);
   }
-  pclose(fp);
 
-  if (!strIpAddress.IsEmpty())
+  if (!strIpAddress.empty())
   {
     g_DNSCache.Add(strHostName, strIpAddress);
     return true;
@@ -83,7 +73,11 @@ bool CDNSNameCache::Lookup(const CStdString& strHostName, CStdString& strIpAddre
   struct hostent *host = gethostbyname(strHostName.c_str());
   if (host && host->h_addr_list[0])
   {
-    strIpAddress.Format("%d.%d.%d.%d", (unsigned char)host->h_addr_list[0][0], (unsigned char)host->h_addr_list[0][1], (unsigned char)host->h_addr_list[0][2], (unsigned char)host->h_addr_list[0][3]);
+    strIpAddress = StringUtils::Format("%d.%d.%d.%d",
+                                       (unsigned char)host->h_addr_list[0][0],
+                                       (unsigned char)host->h_addr_list[0][1],
+                                       (unsigned char)host->h_addr_list[0][2],
+                                       (unsigned char)host->h_addr_list[0][3]);
     g_DNSCache.Add(strHostName, strIpAddress);
     return true;
   }
@@ -92,7 +86,7 @@ bool CDNSNameCache::Lookup(const CStdString& strHostName, CStdString& strIpAddre
   return false;
 }
 
-bool CDNSNameCache::GetCached(const CStdString& strHostName, CStdString& strIpAddress)
+bool CDNSNameCache::GetCached(const std::string& strHostName, std::string& strIpAddress)
 {
   CSingleLock lock(m_critical);
 
@@ -111,7 +105,7 @@ bool CDNSNameCache::GetCached(const CStdString& strHostName, CStdString& strIpAd
   return false;
 }
 
-void CDNSNameCache::Add(const CStdString &strHostName, const CStdString &strIpAddress)
+void CDNSNameCache::Add(const std::string &strHostName, const std::string &strIpAddress)
 {
   CDNSName dnsName;
 

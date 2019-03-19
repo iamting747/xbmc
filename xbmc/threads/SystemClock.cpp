@@ -1,34 +1,15 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include <stdint.h>
 
-#if   defined(TARGET_DARWIN)
-#include <mach/mach_time.h>
-#include <CoreVideo/CVHostTime.h>
-#elif defined(TARGET_WINDOWS)
-#include <windows.h>
-#else
-#include <time.h>
-#endif
+#include "SystemClock.h"
+#include "utils/TimeUtils.h"
 
 namespace XbmcThreads
 {
@@ -37,15 +18,9 @@ namespace XbmcThreads
     uint64_t now_time;
     static uint64_t start_time = 0;
     static bool start_time_set = false;
-#if defined(TARGET_DARWIN)
-    now_time = CVGetCurrentHostTime() *  1000 / CVGetHostClockFrequency();
-#elif defined(TARGET_WINDOWS)
-    now_time = (uint64_t)timeGetTime();
-#else
-    struct timespec ts = {};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    now_time = (ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
-#endif
+
+    now_time = static_cast<uint64_t>(1000 * CurrentHostCounter() / CurrentHostFrequency());
+
     if (!start_time_set)
     {
       start_time = now_time;
@@ -53,4 +28,5 @@ namespace XbmcThreads
     }
     return (unsigned int)(now_time - start_time);
   }
+  const unsigned int EndTime::InfiniteValue = std::numeric_limits<unsigned int>::max();
 }

@@ -1,32 +1,19 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "SkinVariable.h"
 #include "GUIInfoManager.h"
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
 #include "utils/XBMCTinyXML.h"
 
-using namespace std;
 using namespace INFO;
-
-#define DEFAULT_VALUE -1
+using namespace KODI;
 
 const CSkinVariableString* CSkinVariable::CreateFromXML(const TiXmlElement& node, int context)
 {
@@ -39,47 +26,43 @@ const CSkinVariableString* CSkinVariable::CreateFromXML(const TiXmlElement& node
     const TiXmlElement* valuenode = node.FirstChildElement("value");
     while (valuenode)
     {
-      if (valuenode->FirstChild())
-      {
-        CSkinVariableString::ConditionLabelPair pair;
-        if (valuenode->Attribute("condition"))
-          pair.m_condition = g_infoManager.Register(valuenode->Attribute("condition"), context);
-        else
-          pair.m_condition = DEFAULT_VALUE;
+      CSkinVariableString::ConditionLabelPair pair;
+      const char *condition = valuenode->Attribute("condition");
+      if (condition)
+        pair.m_condition = CServiceBroker::GetGUI()->GetInfoManager().Register(condition, context);
 
-        pair.m_label = CGUIInfoLabel(valuenode->FirstChild()->Value());
-        tmp->m_conditionLabelPairs.push_back(pair);
-        if (pair.m_condition == DEFAULT_VALUE)
-          break; // once we reach default value (without condition) break iterating
-      }
+      auto label = valuenode->FirstChild() ? valuenode->FirstChild()->ValueStr() : "";
+      pair.m_label = GUILIB::GUIINFO::CGUIInfoLabel(label);
+      tmp->m_conditionLabelPairs.push_back(pair);
+      if (!pair.m_condition)
+        break; // once we reach default value (without condition) break iterating
+
       valuenode = valuenode->NextSiblingElement("value");
     }
-    if (tmp->m_conditionLabelPairs.size() > 0)
+    if (!tmp->m_conditionLabelPairs.empty())
       return tmp;
     delete tmp;
   }
   return NULL;
 }
 
-CSkinVariableString::CSkinVariableString()
-{
-}
+CSkinVariableString::CSkinVariableString() = default;
 
 int CSkinVariableString::GetContext() const
 {
   return m_context;
 }
 
-const CStdString& CSkinVariableString::GetName() const
+const std::string& CSkinVariableString::GetName() const
 {
   return m_name;
 }
 
-CStdString CSkinVariableString::GetValue(bool preferImage /* = false*/, const CGUIListItem *item /* = NULL */)
+std::string CSkinVariableString::GetValue(bool preferImage /* = false */, const CGUIListItem *item /* = nullptr */) const
 {
-  for (VECCONDITIONLABELPAIR::const_iterator it = m_conditionLabelPairs.begin() ; it != m_conditionLabelPairs.end(); it++)
+  for (VECCONDITIONLABELPAIR::const_iterator it = m_conditionLabelPairs.begin() ; it != m_conditionLabelPairs.end(); ++it)
   {
-    if (it->m_condition == DEFAULT_VALUE || g_infoManager.GetBoolValue(it->m_condition, item))
+    if (!it->m_condition || it->m_condition->Get(item))
     {
       if (item)
         return it->m_label.GetItemLabel(item, preferImage);

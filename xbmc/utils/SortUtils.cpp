@@ -1,37 +1,24 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2012-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "SortUtils.h"
+#include "LangInfo.h"
 #include "URL.h"
-#include "XBDateTime.h"
-#include "settings/AdvancedSettings.h"
+#include "Util.h"
 #include "utils/CharsetConverter.h"
-#include "utils/StdString.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 
-using namespace std;
+#include <algorithm>
 
-string ArrayToString(SortAttribute attributes, const CVariant &variant, const string &seperator = " / ")
+std::string ArrayToString(SortAttribute attributes, const CVariant &variant, const std::string &separator = " / ")
 {
-  vector<string> strArray;
+  std::vector<std::string> strArray;
   if (variant.isArray())
   {
     for (CVariant::const_iterator_array it = variant.begin_array(); it != variant.end_array(); it++)
@@ -41,6 +28,8 @@ string ArrayToString(SortAttribute attributes, const CVariant &variant, const st
       else
         strArray.push_back(it->asString());
     }
+
+    return StringUtils::Join(strArray, separator);
   }
   else if (variant.isString())
   {
@@ -50,196 +39,202 @@ string ArrayToString(SortAttribute attributes, const CVariant &variant, const st
       return variant.asString();
   }
 
-  return StringUtils::Join(strArray, seperator);
+  return "";
 }
 
-string ByLabel(SortAttribute attributes, const SortItem &values)
+std::string ByLabel(SortAttribute attributes, const SortItem &values)
 {
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldLabel)) == values.end())
-    return "";
-  
   if (attributes & SortAttributeIgnoreArticle)
-    return SortUtils::RemoveArticles(it->second.asString());
+    return SortUtils::RemoveArticles(values.at(FieldLabel).asString());
 
-  return it->second.asString();
+  return values.at(FieldLabel).asString();
 }
 
-string ByFile(SortAttribute attributes, const SortItem &values)
+std::string ByFile(SortAttribute attributes, const SortItem &values)
 {
   CURL url(values.at(FieldPath).asString());
-  int64_t startOffset = 0;
 
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldStartOffset)) != values.end())
-    startOffset = it->second.asInteger();
-  
-  CStdString label;
-  label.Format("%s %d", url.GetFileNameWithoutPath().c_str(), startOffset);
-  return label;
+  return StringUtils::Format("%s %" PRId64, url.GetFileNameWithoutPath().c_str(), values.at(FieldStartOffset).asInteger());
 }
 
-string ByPath(SortAttribute attributes, const SortItem &values)
+std::string ByPath(SortAttribute attributes, const SortItem &values)
 {
-  int64_t startOffset = 0;
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldStartOffset)) != values.end())
-    startOffset = it->second.asInteger();
-  
-  CStdString label;
-  label.Format("%s %d", values.at(FieldPath).asString().c_str(), startOffset);
-  return label;
+  return StringUtils::Format("%s %" PRId64, values.at(FieldPath).asString().c_str(), values.at(FieldStartOffset).asInteger());
 }
 
-string ByLastPlayed(SortAttribute attributes, const SortItem &values)
+std::string ByLastPlayed(SortAttribute attributes, const SortItem &values)
 {
-  CStdString lastPlayed;
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldLastPlayed)) != values.end())
-    lastPlayed = it->second.asString();
+  if (attributes & SortAttributeIgnoreLabel)
+    return values.at(FieldLastPlayed).asString();
 
-  CStdString label;
-  label.Format("%s %s", lastPlayed.c_str(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%s %s", values.at(FieldLastPlayed).asString().c_str(), ByLabel(attributes, values).c_str());
 }
 
-string ByPlaycount(SortAttribute attributes, const SortItem &values)
+std::string ByPlaycount(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i %s", (int)values.at(FieldPlaycount).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%i %s", (int)values.at(FieldPlaycount).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByDate(SortAttribute attributes, const SortItem &values)
+std::string ByDate(SortAttribute attributes, const SortItem &values)
 {
   return values.at(FieldDate).asString() + " " + ByLabel(attributes, values);
 }
 
-string ByDateAdded(SortAttribute attributes, const SortItem &values)
+std::string ByDateAdded(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%s %d", values.at(FieldDateAdded).asString().c_str(), (int)values.at(FieldId).asInteger());
-  return label;
+  return StringUtils::Format("%s %d", values.at(FieldDateAdded).asString().c_str(), (int)values.at(FieldId).asInteger());
 }
 
-string BySize(SortAttribute attributes, const SortItem &values)
+std::string BySize(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%"PRId64, values.at(FieldSize).asInteger());
-  return label;
+  return StringUtils::Format("%" PRId64, values.at(FieldSize).asInteger());
 }
 
-string ByDriveType(SortAttribute attributes, const SortItem &values)
+std::string ByDriveType(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%d %s", (int)values.at(FieldDriveType).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%d %s", (int)values.at(FieldDriveType).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByTitle(SortAttribute attributes, const SortItem &values)
+std::string ByTitle(SortAttribute attributes, const SortItem &values)
 {
-  string title = values.at(FieldTitle).asString();
   if (attributes & SortAttributeIgnoreArticle)
-    title = SortUtils::RemoveArticles(title);
+    return SortUtils::RemoveArticles(values.at(FieldTitle).asString());
 
-  return title;
+  return values.at(FieldTitle).asString();
 }
 
-string ByAlbum(SortAttribute attributes, const SortItem &values)
+std::string ByAlbum(SortAttribute attributes, const SortItem &values)
 {
-  string album = values.at(FieldAlbum).asString();
+  std::string album = values.at(FieldAlbum).asString();
   if (attributes & SortAttributeIgnoreArticle)
     album = SortUtils::RemoveArticles(album);
 
-  CStdString label;
-  label.Format("%s %s", album, ArrayToString(attributes, values.at(FieldArtist)));
+  std::string label = StringUtils::Format("%s %s", album.c_str(), ArrayToString(attributes, values.at(FieldArtist)).c_str());
 
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldTrackNumber)) != values.end())
-    label.AppendFormat(" %i", (int)it->second.asInteger());
+  const CVariant &track = values.at(FieldTrackNumber);
+  if (!track.isNull())
+    label += StringUtils::Format(" %i", (int)track.asInteger());
 
   return label;
 }
 
-string ByAlbumType(SortAttribute attributes, const SortItem &values)
+std::string ByAlbumType(SortAttribute attributes, const SortItem &values)
 {
   return values.at(FieldAlbumType).asString() + " " + ByLabel(attributes, values);
 }
 
-string ByArtist(SortAttribute attributes, const SortItem &values)
+std::string ByArtist(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label = ArrayToString(attributes, values.at(FieldArtist));
+  std::string label;
+  if (attributes & SortAttributeUseArtistSortName)
+  {
+    const CVariant &artistsort = values.at(FieldArtistSort);
+    if (!artistsort.isNull())
+      label = artistsort.asString();
+  }
+  if (label.empty())
+    label = ArrayToString(attributes, values.at(FieldArtist));
 
-  SortItem::const_iterator it;
-  if (g_advancedSettings.m_bMusicLibraryAlbumsSortByArtistThenYear &&
-      (it = values.find(FieldYear)) != values.end())
-    label.AppendFormat(" %i", (int)it->second.asInteger());
+  const CVariant &album = values.at(FieldAlbum);
+  if (!album.isNull())
+    label += " " + SortUtils::RemoveArticles(album.asString());
 
-  if ((it = values.find(FieldAlbum)) != values.end())
-    label += " " + SortUtils::RemoveArticles(it->second.asString());
-
-  if ((it = values.find(FieldTrackNumber)) != values.end())
-    label.AppendFormat(" %i", (int)it->second.asInteger());
+  const CVariant &track = values.at(FieldTrackNumber);
+  if (!track.isNull())
+    label += StringUtils::Format(" %i", (int)track.asInteger());
 
   return label;
 }
 
-string ByTrackNumber(SortAttribute attributes, const SortItem &values)
+std::string ByArtistThenYear(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i", (int)values.at(FieldTrackNumber).asInteger());
+  std::string label;
+  if (attributes & SortAttributeUseArtistSortName)
+  {
+    const CVariant &artistsort = values.at(FieldArtistSort);
+    if (!artistsort.isNull())
+      label = artistsort.asString();
+  }
+  if (label.empty())
+    label = ArrayToString(attributes, values.at(FieldArtist));
+
+  const CVariant &year = values.at(FieldYear);
+  if (!year.isNull())
+    label += StringUtils::Format(" %i", (int)year.asInteger());
+
+  const CVariant &album = values.at(FieldAlbum);
+  if (!album.isNull())
+    label += " " + SortUtils::RemoveArticles(album.asString());
+
+  const CVariant &track = values.at(FieldTrackNumber);
+  if (!track.isNull())
+    label += StringUtils::Format(" %i", (int)track.asInteger());
+
   return label;
 }
 
-string ByTime(SortAttribute attributes, const SortItem &values)
+std::string ByTrackNumber(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
+  return StringUtils::Format("%i", (int)values.at(FieldTrackNumber).asInteger());
+}
+
+std::string ByTime(SortAttribute attributes, const SortItem &values)
+{
+  std::string label;
   const CVariant &time = values.at(FieldTime);
   if (time.isInteger())
-    label.Format("%i", (int)time.asInteger());
+    label = StringUtils::Format("%i", (int)time.asInteger());
   else
-    label.Format("%s", time.asString());
+    label = StringUtils::Format("%s", time.asString().c_str());
   return label;
 }
 
-string ByProgramCount(SortAttribute attributes, const SortItem &values)
+std::string ByProgramCount(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i", (int)values.at(FieldProgramCount).asInteger());
-  return label;
+  return StringUtils::Format("%i", (int)values.at(FieldProgramCount).asInteger());
 }
 
-string ByPlaylistOrder(SortAttribute attributes, const SortItem &values)
+std::string ByPlaylistOrder(SortAttribute attributes, const SortItem &values)
 {
-  // TODO: Playlist order is hacked into program count variable (not nice, but ok until 2.0)
+  //! @todo Playlist order is hacked into program count variable (not nice, but ok until 2.0)
   return ByProgramCount(attributes, values);
 }
 
-string ByGenre(SortAttribute attributes, const SortItem &values)
+std::string ByGenre(SortAttribute attributes, const SortItem &values)
 {
   return ArrayToString(attributes, values.at(FieldGenre));
 }
 
-string ByCountry(SortAttribute attributes, const SortItem &values)
+std::string ByCountry(SortAttribute attributes, const SortItem &values)
 {
   return ArrayToString(attributes, values.at(FieldCountry));
 }
 
-string ByYear(SortAttribute attributes, const SortItem &values)
+std::string ByYear(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldAirDate)) != values.end())
-    label = it->second.asString() + " ";
+  std::string label;
+  const CVariant &airDate = values.at(FieldAirDate);
+  if (!airDate.isNull() && !airDate.asString().empty())
+    label = airDate.asString() + " ";
 
-  label.AppendFormat("%i %s", (int)values.at(FieldYear).asInteger(), ByLabel(attributes, values).c_str());
- 
+  label += StringUtils::Format("%i", (int)values.at(FieldYear).asInteger());
+
+  const CVariant &album = values.at(FieldAlbum);
+  if (!album.isNull())
+    label += " " + SortUtils::RemoveArticles(album.asString());
+
+  const CVariant &track = values.at(FieldTrackNumber);
+  if (!track.isNull())
+    label += StringUtils::Format(" %i", (int)track.asInteger());
+
+  label += " " + ByLabel(attributes, values);
+
   return label;
 }
 
-string BySortTitle(SortAttribute attributes, const SortItem &values)
+std::string BySortTitle(SortAttribute attributes, const SortItem &values)
 {
-  string title = values.at(FieldSortTitle).asString();
+  std::string title = values.at(FieldSortTitle).asString();
   if (title.empty())
     title = values.at(FieldTitle).asString();
 
@@ -249,38 +244,37 @@ string BySortTitle(SortAttribute attributes, const SortItem &values)
   return title;
 }
 
-string ByRating(SortAttribute attributes, const SortItem &values)
+std::string ByRating(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%f %s", values.at(FieldRating).asFloat(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%f %s", values.at(FieldRating).asFloat(), ByLabel(attributes, values).c_str());
 }
 
-string ByVotes(SortAttribute attributes, const SortItem &values)
+std::string ByUserRating(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%d %s", (int)values.at(FieldVotes).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%d %s", static_cast<int>(values.at(FieldUserRating).asInteger()), ByLabel(attributes, values).c_str());
 }
 
-string ByTop250(SortAttribute attributes, const SortItem &values)
+std::string ByVotes(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%d %s", (int)values.at(FieldTop250).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%d %s", (int)values.at(FieldVotes).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByMPAA(SortAttribute attributes, const SortItem &values)
+std::string ByTop250(SortAttribute attributes, const SortItem &values)
+{
+  return StringUtils::Format("%d %s", (int)values.at(FieldTop250).asInteger(), ByLabel(attributes, values).c_str());
+}
+
+std::string ByMPAA(SortAttribute attributes, const SortItem &values)
 {
   return values.at(FieldMPAA).asString() + " " + ByLabel(attributes, values);
 }
 
-string ByStudio(SortAttribute attributes, const SortItem &values)
+std::string ByStudio(SortAttribute attributes, const SortItem &values)
 {
   return ArrayToString(attributes, values.at(FieldStudio));
 }
 
-string ByEpisodeNumber(SortAttribute attributes, const SortItem &values)
+std::string ByEpisodeNumber(SortAttribute attributes, const SortItem &values)
 {
   // we calculate an offset number based on the episode's
   // sort season and episode values. in addition
@@ -291,128 +285,141 @@ string ByEpisodeNumber(SortAttribute attributes, const SortItem &values)
   // after each other they will sort backwards. if a show has > 2^32-1 seasons
   // or if a season has > 2^16-1 episodes strange things will happen (overflow)
   uint64_t num;
-  SortItem::const_iterator itEpisodeSpecial = values.find(FieldEpisodeNumberSpecialSort);
-  SortItem::const_iterator itSeasonSpecial = values.find(FieldSeasonSpecialSort);
-  if (itEpisodeSpecial != values.end() && itSeasonSpecial != values.end() &&
-      itEpisodeSpecial->second.asInteger() > 0)
-    num = ((uint64_t)itSeasonSpecial->second.asInteger() << 32) + (itEpisodeSpecial->second.asInteger() << 16) - ((2 << 15) - values.at(FieldEpisodeNumber).asInteger());
+  const CVariant &episodeSpecial = values.at(FieldEpisodeNumberSpecialSort);
+  const CVariant &seasonSpecial = values.at(FieldSeasonSpecialSort);
+  if (!episodeSpecial.isNull() && !seasonSpecial.isNull() &&
+     (episodeSpecial.asInteger() > 0 || seasonSpecial.asInteger() > 0))
+    num = ((uint64_t)seasonSpecial.asInteger() << 32) + (episodeSpecial.asInteger() << 16) - ((2 << 15) - values.at(FieldEpisodeNumber).asInteger());
   else
     num = ((uint64_t)values.at(FieldSeason).asInteger() << 32) + (values.at(FieldEpisodeNumber).asInteger() << 16);
 
-  CStdString label;
-  label.Format("%"PRIu64" %s", num, values.at(FieldFilename).asString().c_str());
-  return label;
+  std::string title;
+  if (values.find(FieldMediaType) != values.end() && values.at(FieldMediaType).asString() == MediaTypeMovie)
+    title = BySortTitle(attributes, values);
+  if (title.empty())
+    title = ByLabel(attributes, values);
+
+  return StringUtils::Format("%" PRIu64" %s", num, title.c_str());
 }
 
-string BySeason(SortAttribute attributes, const SortItem &values)
+std::string BySeason(SortAttribute attributes, const SortItem &values)
 {
   int season = (int)values.at(FieldSeason).asInteger();
-  SortItem::const_iterator it;
-  if ((it = values.find(FieldSeasonSpecialSort)) != values.end())
-    season = (int)it->second.asInteger();
+  const CVariant &specialSeason = values.at(FieldSeasonSpecialSort);
+  if (!specialSeason.isNull())
+    season = (int)specialSeason.asInteger();
 
-  CStdString label;
-  label.Format("%i %s", season, ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%i %s", season, ByLabel(attributes, values).c_str());
 }
 
-string ByNumberOfEpisodes(SortAttribute attributes, const SortItem &values)
+std::string ByNumberOfEpisodes(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i %s", (int)values.at(FieldNumberOfEpisodes).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%i %s", (int)values.at(FieldNumberOfEpisodes).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByNumberOfWatchedEpisodes(SortAttribute attributes, const SortItem &values)
+std::string ByNumberOfWatchedEpisodes(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i %s", (int)values.at(FieldNumberOfWatchedEpisodes).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%i %s", (int)values.at(FieldNumberOfWatchedEpisodes).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByTvShowStatus(SortAttribute attributes, const SortItem &values)
+std::string ByTvShowStatus(SortAttribute attributes, const SortItem &values)
 {
   return values.at(FieldTvShowStatus).asString() + " " + ByLabel(attributes, values);
 }
 
-string ByTvShowTitle(SortAttribute attributes, const SortItem &values)
+std::string ByTvShowTitle(SortAttribute attributes, const SortItem &values)
 {
   return values.at(FieldTvShowTitle).asString() + " " + ByLabel(attributes, values);
 }
 
-string ByProductionCode(SortAttribute attributes, const SortItem &values)
+std::string ByProductionCode(SortAttribute attributes, const SortItem &values)
 {
   return values.at(FieldProductionCode).asString();
 }
 
-string ByVideoResolution(SortAttribute attributes, const SortItem &values)
+std::string ByVideoResolution(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i %s", (int)values.at(FieldVideoResolution).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%i %s", (int)values.at(FieldVideoResolution).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByVideoCodec(SortAttribute attributes, const SortItem &values)
+std::string ByVideoCodec(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%s %s", values.at(FieldVideoCodec).asString(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%s %s", values.at(FieldVideoCodec).asString().c_str(), ByLabel(attributes, values).c_str());
 }
 
-string ByVideoAspectRatio(SortAttribute attributes, const SortItem &values)
+std::string ByVideoAspectRatio(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%f %s", values.at(FieldVideoAspectRatio).asString(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%.3f %s", values.at(FieldVideoAspectRatio).asFloat(), ByLabel(attributes, values).c_str());
 }
 
-string ByAudioChannels(SortAttribute attributes, const SortItem &values)
+std::string ByAudioChannels(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i %s", (int)values.at(FieldAudioChannels).asInteger(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%i %s", (int)values.at(FieldAudioChannels).asInteger(), ByLabel(attributes, values).c_str());
 }
 
-string ByAudioCodec(SortAttribute attributes, const SortItem &values)
+std::string ByAudioCodec(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%s %s", values.at(FieldAudioCodec).asString(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%s %s", values.at(FieldAudioCodec).asString().c_str(), ByLabel(attributes, values).c_str());
 }
 
-string ByAudioLanguage(SortAttribute attributes, const SortItem &values)
+std::string ByAudioLanguage(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%s %s", values.at(FieldAudioLanguage).asString(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%s %s", values.at(FieldAudioLanguage).asString().c_str(), ByLabel(attributes, values).c_str());
 }
 
-string BySubtitleLanguage(SortAttribute attributes, const SortItem &values)
+std::string BySubtitleLanguage(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%s %s", values.at(FieldSubtitleLanguage).asString(), ByLabel(attributes, values).c_str());
-  return label;
+  return StringUtils::Format("%s %s", values.at(FieldSubtitleLanguage).asString().c_str(), ByLabel(attributes, values).c_str());
 }
 
-string ByBitrate(SortAttribute attributes, const SortItem &values)
+std::string ByBitrate(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%"PRId64, values.at(FieldBitrate).asInteger());
-  return label;
+  return StringUtils::Format("%" PRId64, values.at(FieldBitrate).asInteger());
 }
 
-string ByListeners(SortAttribute attributes, const SortItem &values)
+std::string ByListeners(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i", values.at(FieldListeners).asInteger());
-  return label;
+  return StringUtils::Format("%" PRId64, values.at(FieldListeners).asInteger());
 }
 
-string ByRandom(SortAttribute attributes, const SortItem &values)
+std::string ByRandom(SortAttribute attributes, const SortItem &values)
 {
-  CStdString label;
-  label.Format("%i", rand());
-  return label;
+  return StringUtils::Format("%i", CUtil::GetRandomNumber());
+}
+
+std::string ByChannel(SortAttribute attributes, const SortItem &values)
+{
+  return values.at(FieldChannelName).asString();
+}
+
+std::string ByChannelNumber(SortAttribute attributes, const SortItem &values)
+{
+  return values.at(FieldChannelNumber).asString();
+}
+
+std::string ByDateTaken(SortAttribute attributes, const SortItem &values)
+{
+  return values.at(FieldDateTaken).asString();
+}
+
+std::string ByRelevance(SortAttribute attributes, const SortItem &values)
+{
+  return StringUtils::Format("%i", (int)values.at(FieldRelevance).asInteger());
+}
+
+std::string ByInstallDate(SortAttribute attributes, const SortItem &values)
+{
+  return values.at(FieldInstallDate).asString();
+}
+
+std::string ByLastUpdated(SortAttribute attributes, const SortItem &values)
+{
+  return values.at(FieldLastUpdated).asString();
+}
+
+std::string ByLastUsed(SortAttribute attributes, const SortItem &values)
+{
+  return values.at(FieldLastUsed).asString();
 }
 
 bool preliminarySort(const SortItem &left, const SortItem &right, bool handleFolder, bool &result, std::wstring &labelLeft, std::wstring &labelRight)
@@ -438,7 +445,7 @@ bool preliminarySort(const SortItem &left, const SortItem &right, bool handleFol
     leftSortSpecial = (SortSpecial)itLeft->second.asInteger();
   if ((itRight = right.find(FieldSortSpecial)) != right.end() && itRight->second.asInteger() <= (int64_t)SortSpecialOnBottom)
     rightSortSpecial = (SortSpecial)itRight->second.asInteger();
-  
+
   // one has a special sort
   if (leftSortSpecial != rightSortSpecial)
   {
@@ -451,7 +458,7 @@ bool preliminarySort(const SortItem &left, const SortItem &right, bool handleFol
       result = true;
       return true;
     }
-    
+
     // otherwise right is sorted above left
     result = false;
     return true;
@@ -521,9 +528,29 @@ bool SorterIgnoreFoldersDescending(const SortItem &left, const SortItem &right)
   return StringUtils::AlphaNumericCompare(labelLeft.c_str(), labelRight.c_str()) > 0;
 }
 
-map<SortBy, SortUtils::SortPreparator> fillPreparators()
+bool SorterIndirectAscending(const SortItemPtr &left, const SortItemPtr &right)
 {
-  map<SortBy, SortUtils::SortPreparator> preparators;
+  return SorterAscending(*left, *right);
+}
+
+bool SorterIndirectDescending(const SortItemPtr &left, const SortItemPtr &right)
+{
+  return SorterDescending(*left, *right);
+}
+
+bool SorterIndirectIgnoreFoldersAscending(const SortItemPtr &left, const SortItemPtr &right)
+{
+  return SorterIgnoreFoldersAscending(*left, *right);
+}
+
+bool SorterIndirectIgnoreFoldersDescending(const SortItemPtr &left, const SortItemPtr &right)
+{
+  return SorterIgnoreFoldersDescending(*left, *right);
+}
+
+std::map<SortBy, SortUtils::SortPreparator> fillPreparators()
+{
+  std::map<SortBy, SortUtils::SortPreparator> preparators;
 
   preparators[SortByNone]                     = NULL;
   preparators[SortByLabel]                    = ByLabel;
@@ -536,12 +563,14 @@ map<SortBy, SortUtils::SortPreparator> fillPreparators()
   preparators[SortByTrackNumber]              = ByTrackNumber;
   preparators[SortByTime]                     = ByTime;
   preparators[SortByArtist]                   = ByArtist;
+  preparators[SortByArtistThenYear]           = ByArtistThenYear;
   preparators[SortByAlbum]                    = ByAlbum;
   preparators[SortByAlbumType]                = ByAlbumType;
   preparators[SortByGenre]                    = ByGenre;
   preparators[SortByCountry]                  = ByCountry;
   preparators[SortByYear]                     = ByYear;
   preparators[SortByRating]                   = ByRating;
+  preparators[SortByUserRating]               = ByUserRating;
   preparators[SortByVotes]                    = ByVotes;
   preparators[SortByTop250]                   = ByTop250;
   preparators[SortByProgramCount]             = ByProgramCount;
@@ -569,15 +598,22 @@ map<SortBy, SortUtils::SortPreparator> fillPreparators()
   preparators[SortByListeners]                = ByListeners;
   preparators[SortByBitrate]                  = ByBitrate;
   preparators[SortByRandom]                   = ByRandom;
+  preparators[SortByChannel]                  = ByChannel;
+  preparators[SortByChannelNumber]            = ByChannelNumber;
+  preparators[SortByDateTaken]                = ByDateTaken;
+  preparators[SortByRelevance]                = ByRelevance;
+  preparators[SortByInstallDate]              = ByInstallDate;
+  preparators[SortByLastUpdated]              = ByLastUpdated;
+  preparators[SortByLastUsed]                 = ByLastUsed;
 
   return preparators;
 }
 
-map<SortBy, Fields> fillSortingFields()
+std::map<SortBy, Fields> fillSortingFields()
 {
-  map<SortBy, Fields> sortingFields;
+  std::map<SortBy, Fields> sortingFields;
 
-  sortingFields.insert(pair<SortBy, Fields>(SortByNone, Fields()));
+  sortingFields.insert(std::pair<SortBy, Fields>(SortByNone, Fields()));
 
   sortingFields[SortByLabel].insert(FieldLabel);
   sortingFields[SortByDate].insert(FieldDate);
@@ -591,18 +627,28 @@ map<SortBy, Fields> fillSortingFields()
   sortingFields[SortByTrackNumber].insert(FieldTrackNumber);
   sortingFields[SortByTime].insert(FieldTime);
   sortingFields[SortByArtist].insert(FieldArtist);
+  sortingFields[SortByArtist].insert(FieldArtistSort);
   sortingFields[SortByArtist].insert(FieldYear);
   sortingFields[SortByArtist].insert(FieldAlbum);
   sortingFields[SortByArtist].insert(FieldTrackNumber);
+  sortingFields[SortByArtistThenYear].insert(FieldArtist);
+  sortingFields[SortByArtistThenYear].insert(FieldArtistSort);
+  sortingFields[SortByArtistThenYear].insert(FieldYear);
+  sortingFields[SortByArtistThenYear].insert(FieldAlbum);
+  sortingFields[SortByArtistThenYear].insert(FieldTrackNumber);
   sortingFields[SortByAlbum].insert(FieldAlbum);
   sortingFields[SortByAlbum].insert(FieldArtist);
+  sortingFields[SortByAlbum].insert(FieldArtistSort);
   sortingFields[SortByAlbum].insert(FieldTrackNumber);
   sortingFields[SortByAlbumType].insert(FieldAlbumType);
   sortingFields[SortByGenre].insert(FieldGenre);
   sortingFields[SortByCountry].insert(FieldCountry);
   sortingFields[SortByYear].insert(FieldYear);
   sortingFields[SortByYear].insert(FieldAirDate);
+  sortingFields[SortByYear].insert(FieldAlbum);
+  sortingFields[SortByYear].insert(FieldTrackNumber);
   sortingFields[SortByRating].insert(FieldRating);
+  sortingFields[SortByUserRating].insert(FieldUserRating);
   sortingFields[SortByVotes].insert(FieldVotes);
   sortingFields[SortByTop250].insert(FieldTop250);
   sortingFields[SortByProgramCount].insert(FieldProgramCount);
@@ -611,8 +657,10 @@ map<SortBy, Fields> fillSortingFields()
   sortingFields[SortByEpisodeNumber].insert(FieldSeason);
   sortingFields[SortByEpisodeNumber].insert(FieldEpisodeNumberSpecialSort);
   sortingFields[SortByEpisodeNumber].insert(FieldSeasonSpecialSort);
-  sortingFields[SortByEpisodeNumber].insert(FieldFilename);
+  sortingFields[SortByEpisodeNumber].insert(FieldTitle);
+  sortingFields[SortByEpisodeNumber].insert(FieldSortTitle);
   sortingFields[SortBySeason].insert(FieldSeason);
+  sortingFields[SortBySeason].insert(FieldSeasonSpecialSort);
   sortingFields[SortByNumberOfEpisodes].insert(FieldNumberOfEpisodes);
   sortingFields[SortByNumberOfWatchedEpisodes].insert(FieldNumberOfWatchedEpisodes);
   sortingFields[SortByTvShowStatus].insert(FieldTvShowStatus);
@@ -635,13 +683,59 @@ map<SortBy, Fields> fillSortingFields()
   sortingFields[SortByPlaycount].insert(FieldPlaycount);
   sortingFields[SortByListeners].insert(FieldListeners);
   sortingFields[SortByBitrate].insert(FieldBitrate);
-  sortingFields.insert(pair<SortBy, Fields>(SortByRandom, Fields()));
+  sortingFields[SortByChannel].insert(FieldChannelName);
+  sortingFields[SortByChannelNumber].insert(FieldChannelNumber);
+  sortingFields[SortByDateTaken].insert(FieldDateTaken);
+  sortingFields[SortByRelevance].insert(FieldRelevance);
+  sortingFields[SortByInstallDate].insert(FieldInstallDate);
+  sortingFields[SortByLastUpdated].insert(FieldLastUpdated);
+  sortingFields[SortByLastUsed].insert(FieldLastUsed);
+  sortingFields.insert(std::pair<SortBy, Fields>(SortByRandom, Fields()));
 
   return sortingFields;
 }
 
-map<SortBy, SortUtils::SortPreparator> SortUtils::m_preparators = fillPreparators();
-map<SortBy, Fields> SortUtils::m_sortingFields = fillSortingFields();
+std::map<SortBy, SortUtils::SortPreparator> SortUtils::m_preparators = fillPreparators();
+std::map<SortBy, Fields> SortUtils::m_sortingFields = fillSortingFields();
+
+void SortUtils::Sort(SortBy sortBy, SortOrder sortOrder, SortAttribute attributes, DatabaseResults& items, int limitEnd /* = -1 */, int limitStart /* = 0 */)
+{
+  if (sortBy != SortByNone)
+  {
+    // get the matching SortPreparator
+    SortPreparator preparator = getPreparator(sortBy);
+    if (preparator != NULL)
+    {
+      Fields sortingFields = GetFieldsForSorting(sortBy);
+
+      // Prepare the string used for sorting and store it under FieldSort
+      for (DatabaseResults::iterator item = items.begin(); item != items.end(); ++item)
+      {
+        // add all fields to the item that are required for sorting if they are currently missing
+        for (Fields::const_iterator field = sortingFields.begin(); field != sortingFields.end(); ++field)
+        {
+          if (item->find(*field) == item->end())
+            item->insert(std::pair<Field, CVariant>(*field, CVariant::ConstNullVariant));
+        }
+
+        std::wstring sortLabel;
+        g_charsetConverter.utf8ToW(preparator(attributes, *item), sortLabel, false);
+        item->insert(std::pair<Field, CVariant>(FieldSort, CVariant(sortLabel)));
+      }
+
+      // Do the sorting
+      std::stable_sort(items.begin(), items.end(), getSorter(sortOrder, attributes));
+    }
+  }
+
+  if (limitStart > 0 && (size_t)limitStart < items.size())
+  {
+    items.erase(items.begin(), items.begin() + limitStart);
+    limitEnd -= limitStart;
+  }
+  if (limitEnd > 0 && (size_t)limitEnd < items.size())
+    items.erase(items.begin() + limitEnd, items.end());
+}
 
 void SortUtils::Sort(SortBy sortBy, SortOrder sortOrder, SortAttribute attributes, SortItems& items, int limitEnd /* = -1 */, int limitStart /* = 0 */)
 {
@@ -651,32 +745,40 @@ void SortUtils::Sort(SortBy sortBy, SortOrder sortOrder, SortAttribute attribute
     SortPreparator preparator = getPreparator(sortBy);
     if (preparator != NULL)
     {
+      Fields sortingFields = GetFieldsForSorting(sortBy);
+
       // Prepare the string used for sorting and store it under FieldSort
-      for (SortItems::iterator item = items.begin(); item != items.end(); item++)
+      for (SortItems::iterator item = items.begin(); item != items.end(); ++item)
       {
-        CStdStringW sortLabel;
-        g_charsetConverter.utf8ToW(preparator(attributes, *item), sortLabel, false);
-        item->insert(pair<Field, CVariant>(FieldSort, CVariant(sortLabel)));
+        // add all fields to the item that are required for sorting if they are currently missing
+        for (Fields::const_iterator field = sortingFields.begin(); field != sortingFields.end(); ++field)
+        {
+          if ((*item)->find(*field) == (*item)->end())
+            (*item)->insert(std::pair<Field, CVariant>(*field, CVariant::ConstNullVariant));
+        }
+
+        std::wstring sortLabel;
+        g_charsetConverter.utf8ToW(preparator(attributes, **item), sortLabel, false);
+        (*item)->insert(std::pair<Field, CVariant>(FieldSort, CVariant(sortLabel)));
       }
 
       // Do the sorting
-      std::stable_sort(items.begin(), items.end(), getSorter(sortOrder, attributes));
+      std::stable_sort(items.begin(), items.end(), getSorterIndirect(sortOrder, attributes));
     }
   }
 
-  if (limitEnd > 0 || limitStart > 0)
+  if (limitStart > 0 && (size_t)limitStart < items.size())
   {
-    SortItems::iterator start = items.begin();
-    SortItems::iterator end = items.end();
-    
-    if (limitStart > 0 && (size_t)limitStart < items.size())
-      start += limitStart;
-    if (limitEnd > 0 && (size_t)limitEnd < items.size())
-      end = items.begin() + limitEnd;
-
-    items.erase(items.begin(), start);
-    items.erase(end, items.end());
+    items.erase(items.begin(), items.begin() + limitStart);
+    limitEnd -= limitStart;
   }
+  if (limitEnd > 0 && (size_t)limitEnd < items.size())
+    items.erase(items.begin() + limitEnd, items.end());
+}
+
+void SortUtils::Sort(const SortDescription &sortDescription, DatabaseResults& items)
+{
+  Sort(sortDescription.sortBy, sortDescription.sortOrder, sortDescription.sortAttributes, items, sortDescription.limitEnd, sortDescription.limitStart);
 }
 
 void SortUtils::Sort(const SortDescription &sortDescription, SortItems& items)
@@ -684,7 +786,7 @@ void SortUtils::Sort(const SortDescription &sortDescription, SortItems& items)
   Sort(sortDescription.sortBy, sortDescription.sortOrder, sortDescription.sortAttributes, items, sortDescription.limitEnd, sortDescription.limitStart);
 }
 
-bool SortUtils::SortFromDataset(const SortDescription &sortDescription, MediaType mediaType, const std::auto_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results)
+bool SortUtils::SortFromDataset(const SortDescription &sortDescription, const MediaType &mediaType, const std::unique_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results)
 {
   FieldList fields;
   if (!DatabaseUtils::GetSelectFields(SortUtils::GetFieldsForSorting(sortDescription.sortBy), mediaType, fields))
@@ -693,14 +795,21 @@ bool SortUtils::SortFromDataset(const SortDescription &sortDescription, MediaTyp
   if (!DatabaseUtils::GetDatabaseResults(mediaType, fields, dataset, results))
     return false;
 
-  Sort(sortDescription, results);
+  SortDescription sorting = sortDescription;
+  if (sortDescription.sortBy == SortByNone)
+  {
+    sorting.limitStart = 0;
+    sorting.limitEnd = -1;
+  }
+
+  Sort(sorting, results);
 
   return true;
 }
 
 const SortUtils::SortPreparator& SortUtils::getPreparator(SortBy sortBy)
 {
-  map<SortBy, SortPreparator>::const_iterator it = m_preparators.find(sortBy);
+  std::map<SortBy, SortPreparator>::const_iterator it = m_preparators.find(sortBy);
   if (it != m_preparators.end())
     return it->second;
 
@@ -715,23 +824,258 @@ SortUtils::Sorter SortUtils::getSorter(SortOrder sortOrder, SortAttribute attrib
   return sortOrder == SortOrderDescending ? SorterDescending : SorterAscending;
 }
 
+SortUtils::SorterIndirect SortUtils::getSorterIndirect(SortOrder sortOrder, SortAttribute attributes)
+{
+  if (attributes & SortAttributeIgnoreFolders)
+    return sortOrder == SortOrderDescending ? SorterIndirectIgnoreFoldersDescending : SorterIndirectIgnoreFoldersAscending;
+
+  return sortOrder == SortOrderDescending ? SorterIndirectDescending : SorterIndirectAscending;
+}
+
 const Fields& SortUtils::GetFieldsForSorting(SortBy sortBy)
 {
-  map<SortBy, Fields>::const_iterator it = m_sortingFields.find(sortBy);
+  std::map<SortBy, Fields>::const_iterator it = m_sortingFields.find(sortBy);
   if (it != m_sortingFields.end())
     return it->second;
 
   return m_sortingFields[SortByNone];
 }
 
-string SortUtils::RemoveArticles(const string &label)
+std::string SortUtils::RemoveArticles(const std::string &label)
 {
-  for (unsigned int i = 0; i < g_advancedSettings.m_vecTokens.size(); ++i)
+  std::set<std::string> sortTokens = g_langInfo.GetSortTokens();
+  for (std::set<std::string>::const_iterator token = sortTokens.begin(); token != sortTokens.end(); ++token)
   {
-    if (g_advancedSettings.m_vecTokens[i].size() < label.size() &&
-        strnicmp(g_advancedSettings.m_vecTokens[i].c_str(), label.c_str(), g_advancedSettings.m_vecTokens[i].size()) == 0)
-      return label.substr(g_advancedSettings.m_vecTokens[i].size());
+    if (token->size() < label.size() && StringUtils::StartsWithNoCase(label, *token))
+      return label.substr(token->size());
   }
 
   return label;
+}
+
+typedef struct
+{
+  SortBy        sort;
+  SORT_METHOD   old;
+  SortAttribute flags;
+  int           label;
+} sort_map;
+
+const sort_map table[] = {
+  { SortByLabel,                    SORT_METHOD_LABEL,                        SortAttributeNone,          551 },
+  { SortByLabel,                    SORT_METHOD_LABEL_IGNORE_THE,             SortAttributeIgnoreArticle, 551 },
+  { SortByLabel,                    SORT_METHOD_LABEL_IGNORE_FOLDERS,         SortAttributeIgnoreFolders, 551 },
+  { SortByDate,                     SORT_METHOD_DATE,                         SortAttributeNone,          552 },
+  { SortBySize,                     SORT_METHOD_SIZE,                         SortAttributeNone,          553 },
+  { SortByBitrate,                  SORT_METHOD_BITRATE,                      SortAttributeNone,          623 },
+  { SortByDriveType,                SORT_METHOD_DRIVE_TYPE,                   SortAttributeNone,          564 },
+  { SortByTrackNumber,              SORT_METHOD_TRACKNUM,                     SortAttributeNone,          554 },
+  { SortByEpisodeNumber,            SORT_METHOD_EPISODE,                      SortAttributeNone,          20359 },// 20360 "Episodes" used for SORT_METHOD_EPISODE for sorting tvshows by episode count
+  { SortByTime,                     SORT_METHOD_DURATION,                     SortAttributeNone,          180 },
+  { SortByTime,                     SORT_METHOD_VIDEO_RUNTIME,                SortAttributeNone,          180 },
+  { SortByTitle,                    SORT_METHOD_TITLE,                        SortAttributeNone,          556 },
+  { SortByTitle,                    SORT_METHOD_TITLE_IGNORE_THE,             SortAttributeIgnoreArticle, 556 },
+  { SortByTitle,                    SORT_METHOD_VIDEO_TITLE,                  SortAttributeNone,          556 },
+  { SortByArtist,                   SORT_METHOD_ARTIST,                       SortAttributeNone,          557 },
+  { SortByArtistThenYear,           SORT_METHOD_ARTIST_AND_YEAR,              SortAttributeNone,          578 },
+  { SortByArtist,                   SORT_METHOD_ARTIST_IGNORE_THE,            SortAttributeIgnoreArticle, 557 },
+  { SortByAlbum,                    SORT_METHOD_ALBUM,                        SortAttributeNone,          558 },
+  { SortByAlbum,                    SORT_METHOD_ALBUM_IGNORE_THE,             SortAttributeIgnoreArticle, 558 },
+  { SortByGenre,                    SORT_METHOD_GENRE,                        SortAttributeNone,          515 },
+  { SortByCountry,                  SORT_METHOD_COUNTRY,                      SortAttributeNone,          574 },
+  { SortByDateAdded,                SORT_METHOD_DATEADDED,                    SortAttributeIgnoreFolders, 570 },
+  { SortByFile,                     SORT_METHOD_FILE,                         SortAttributeIgnoreFolders, 561 },
+  { SortByRating,                   SORT_METHOD_SONG_RATING,                  SortAttributeNone,          563 },
+  { SortByRating,                   SORT_METHOD_VIDEO_RATING,                 SortAttributeIgnoreFolders, 563 },
+  { SortByUserRating,               SORT_METHOD_SONG_USER_RATING,             SortAttributeIgnoreFolders, 38018 },
+  { SortByUserRating,               SORT_METHOD_VIDEO_USER_RATING,            SortAttributeIgnoreFolders, 38018 },
+  { SortBySortTitle,                SORT_METHOD_VIDEO_SORT_TITLE,             SortAttributeIgnoreFolders, 171 },
+  { SortBySortTitle,                SORT_METHOD_VIDEO_SORT_TITLE_IGNORE_THE,  (SortAttribute)(SortAttributeIgnoreFolders | SortAttributeIgnoreArticle), 171 },
+  { SortByYear,                     SORT_METHOD_YEAR,                         SortAttributeIgnoreFolders, 562 },
+  { SortByProductionCode,           SORT_METHOD_PRODUCTIONCODE,               SortAttributeNone,          20368 },
+  { SortByProgramCount,             SORT_METHOD_PROGRAM_COUNT,                SortAttributeNone,          567 }, // label is "play count"
+  { SortByPlaylistOrder,            SORT_METHOD_PLAYLIST_ORDER,               SortAttributeIgnoreFolders, 559 },
+  { SortByMPAA,                     SORT_METHOD_MPAA_RATING,                  SortAttributeNone,          20074 },
+  { SortByStudio,                   SORT_METHOD_STUDIO,                       SortAttributeNone,          572 },
+  { SortByStudio,                   SORT_METHOD_STUDIO_IGNORE_THE,            SortAttributeIgnoreArticle, 572 },
+  { SortByPath,                     SORT_METHOD_FULLPATH,                     SortAttributeNone,          573 },
+  { SortByLastPlayed,               SORT_METHOD_LASTPLAYED,                   SortAttributeIgnoreFolders, 568 },
+  { SortByPlaycount,                SORT_METHOD_PLAYCOUNT,                    SortAttributeIgnoreFolders, 567 },
+  { SortByListeners,                SORT_METHOD_LISTENERS,                    SortAttributeNone,          20455 },
+  { SortByChannel,                  SORT_METHOD_CHANNEL,                      SortAttributeNone,          19029 },
+  { SortByChannel,                  SORT_METHOD_CHANNEL_NUMBER,               SortAttributeNone,          549 },
+  { SortByDateTaken,                SORT_METHOD_DATE_TAKEN,                   SortAttributeIgnoreFolders, 577 },
+  { SortByNone,                     SORT_METHOD_NONE,                         SortAttributeNone,          16018 },
+  // the following have no corresponding SORT_METHOD_*
+  { SortByAlbumType,                SORT_METHOD_NONE,                         SortAttributeNone,          564 },
+  { SortByVotes,                    SORT_METHOD_NONE,                         SortAttributeNone,          205 },
+  { SortByTop250,                   SORT_METHOD_NONE,                         SortAttributeNone,          13409 },
+  { SortByMPAA,                     SORT_METHOD_NONE,                         SortAttributeNone,          20074 },
+  { SortByDateAdded,                SORT_METHOD_NONE,                         SortAttributeNone,          570 },
+  { SortByTvShowTitle,              SORT_METHOD_NONE,                         SortAttributeNone,          20364 },
+  { SortByTvShowStatus,             SORT_METHOD_NONE,                         SortAttributeNone,          126 },
+  { SortBySeason,                   SORT_METHOD_NONE,                         SortAttributeNone,          20373 },
+  { SortByNumberOfEpisodes,         SORT_METHOD_NONE,                         SortAttributeNone,          20360 },
+  { SortByNumberOfWatchedEpisodes,  SORT_METHOD_NONE,                         SortAttributeNone,          21441 },
+  { SortByVideoResolution,          SORT_METHOD_NONE,                         SortAttributeNone,          21443 },
+  { SortByVideoCodec,               SORT_METHOD_NONE,                         SortAttributeNone,          21445 },
+  { SortByVideoAspectRatio,         SORT_METHOD_NONE,                         SortAttributeNone,          21374 },
+  { SortByAudioChannels,            SORT_METHOD_NONE,                         SortAttributeNone,          21444 },
+  { SortByAudioCodec,               SORT_METHOD_NONE,                         SortAttributeNone,          21446 },
+  { SortByAudioLanguage,            SORT_METHOD_NONE,                         SortAttributeNone,          21447 },
+  { SortBySubtitleLanguage,         SORT_METHOD_NONE,                         SortAttributeNone,          21448 },
+  { SortByRandom,                   SORT_METHOD_NONE,                         SortAttributeNone,          590 }
+};
+
+SORT_METHOD SortUtils::TranslateOldSortMethod(SortBy sortBy, bool ignoreArticle)
+{
+  for (const sort_map& t : table)
+  {
+    if (t.sort == sortBy)
+    {
+      if (ignoreArticle == ((t.flags & SortAttributeIgnoreArticle) == SortAttributeIgnoreArticle))
+        return t.old;
+    }
+  }
+  for (const sort_map& t : table)
+  {
+    if (t.sort == sortBy)
+      return t.old;
+  }
+  return SORT_METHOD_NONE;
+}
+
+SortDescription SortUtils::TranslateOldSortMethod(SORT_METHOD sortBy)
+{
+  SortDescription description;
+  for (const sort_map& t : table)
+  {
+    if (t.old == sortBy)
+    {
+      description.sortBy = t.sort;
+      description.sortAttributes = t.flags;
+      break;
+    }
+  }
+  return description;
+}
+
+int SortUtils::GetSortLabel(SortBy sortBy)
+{
+  for (const sort_map& t : table)
+  {
+    if (t.sort == sortBy)
+      return t.label;
+  }
+  return 16018; // None
+}
+
+template<typename T>
+T TypeFromString(const std::map<std::string, T>& typeMap, const std::string& name, const T& defaultType)
+{
+  auto it = typeMap.find(name);
+  if (it == typeMap.end())
+    return defaultType;
+
+  return it->second;
+}
+
+template<typename T>
+const std::string& TypeToString(const std::map<std::string, T>& typeMap, const T& value)
+{
+  auto it = std::find_if(typeMap.begin(), typeMap.end(),
+    [&value](const std::pair<std::string, T>& pair)
+  {
+    return pair.second == value;
+  });
+
+  if (it == typeMap.end())
+    return StringUtils::Empty;
+
+  return it->first;
+}
+
+/**
+ * @brief Sort methods to translate string values to enum values.
+ *
+ * @warning On string changes, edit __SortBy__ enumerator to have strings right
+ * for documentation!
+ */
+const std::map<std::string, SortBy> sortMethods = {
+  { "label",            SortByLabel },
+  { "date",             SortByDate },
+  { "size",             SortBySize },
+  { "file",             SortByFile },
+  { "path",             SortByPath },
+  { "drivetype",        SortByDriveType },
+  { "title",            SortByTitle },
+  { "track",            SortByTrackNumber },
+  { "time",             SortByTime },
+  { "artist",           SortByArtist },
+  { "artistyear",       SortByArtistThenYear },
+  { "album",            SortByAlbum },
+  { "albumtype",        SortByAlbumType },
+  { "genre",            SortByGenre },
+  { "country",          SortByCountry },
+  { "year",             SortByYear },
+  { "rating",           SortByRating },
+  { "votes",            SortByVotes },
+  { "top250",           SortByTop250 },
+  { "programcount",     SortByProgramCount },
+  { "playlist",         SortByPlaylistOrder },
+  { "episode",          SortByEpisodeNumber },
+  { "season",           SortBySeason },
+  { "totalepisodes",    SortByNumberOfEpisodes },
+  { "watchedepisodes",  SortByNumberOfWatchedEpisodes },
+  { "tvshowstatus",     SortByTvShowStatus },
+  { "tvshowtitle",      SortByTvShowTitle },
+  { "sorttitle",        SortBySortTitle },
+  { "productioncode",   SortByProductionCode },
+  { "mpaa",             SortByMPAA },
+  { "videoresolution",  SortByVideoResolution },
+  { "videocodec",       SortByVideoCodec },
+  { "videoaspectratio", SortByVideoAspectRatio },
+  { "audiochannels",    SortByAudioChannels },
+  { "audiocodec",       SortByAudioCodec },
+  { "audiolanguage",    SortByAudioLanguage },
+  { "subtitlelanguage", SortBySubtitleLanguage },
+  { "studio",           SortByStudio },
+  { "dateadded",        SortByDateAdded },
+  { "lastplayed",       SortByLastPlayed },
+  { "playcount",        SortByPlaycount },
+  { "listeners",        SortByListeners },
+  { "bitrate",          SortByBitrate },
+  { "random",           SortByRandom },
+  { "channel",          SortByChannel },
+  { "channelnumber",    SortByChannelNumber },
+  { "datetaken",        SortByDateTaken },
+  { "userrating",       SortByUserRating },
+  { "installdate",      SortByInstallDate },
+  { "lastupdated",      SortByLastUpdated },
+  { "lastused",         SortByLastUsed },
+};
+
+SortBy SortUtils::SortMethodFromString(const std::string& sortMethod)
+{
+  return TypeFromString<SortBy>(sortMethods, sortMethod, SortByNone);
+}
+
+const std::string& SortUtils::SortMethodToString(SortBy sortMethod)
+{
+  return TypeToString<SortBy>(sortMethods, sortMethod);
+}
+
+const std::map<std::string, SortOrder> sortOrders = {
+  { "ascending", SortOrderAscending },
+  { "descending", SortOrderDescending }
+};
+
+SortOrder SortUtils::SortOrderFromString(const std::string& sortOrder)
+{
+  return TypeFromString<SortOrder>(sortOrders, sortOrder, SortOrderNone);
+}
+
+const std::string& SortUtils::SortOrderToString(SortOrder sortOrder)
+{
+  return TypeToString<SortOrder>(sortOrders, sortOrder);
 }

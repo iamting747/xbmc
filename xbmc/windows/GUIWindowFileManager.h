@@ -1,32 +1,21 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
 #pragma once
 
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
+#include <atomic>
+#include <string>
+#include <vector>
 
 #include "guilib/GUIWindow.h"
 #include "filesystem/VirtualDirectory.h"
 #include "filesystem/DirectoryHistory.h"
-#include "threads/CriticalSection.h"
-#include "filesystem/File.h"
-#include "utils/Job.h"
+#include "utils/JobManager.h"
 
 class CFileItem;
 class CFileItemList;
@@ -34,31 +23,27 @@ class CGUIDialogProgress;
 
 class CGUIWindowFileManager :
       public CGUIWindow,
-      public XFILE::IFileCallback,
-      public IJobCallback
+      public CJobQueue
 {
 public:
 
   CGUIWindowFileManager(void);
-  virtual ~CGUIWindowFileManager(void);
-  virtual bool OnMessage(CGUIMessage& message);
-  virtual bool OnAction(const CAction &action);
-  virtual bool OnBack(int actionID);
-  virtual bool OnFileCallback(void* pContext, int ipercent, float avgSpeed);
+  ~CGUIWindowFileManager(void) override;
+  bool OnMessage(CGUIMessage& message) override;
+  bool OnAction(const CAction &action) override;
+  bool OnBack(int actionID) override;
   const CFileItem &CurrentDirectory(int indx) const;
 
-  void ResetProgressBar(bool showProgress = true);
-  static int64_t CalculateFolderSize(const CStdString &strDirectory, CGUIDialogProgress *pProgress = NULL);
+  static int64_t CalculateFolderSize(const std::string &strDirectory, CGUIDialogProgress *pProgress = NULL);
 
-  virtual void OnJobComplete(unsigned int jobID, bool success, CJob *job);
-  virtual void OnJobProgress(unsigned int jobID, unsigned int progress, unsigned int total, const CJob *job);
+  void OnJobComplete(unsigned int jobID, bool success, CJob *job) override;
 protected:
-  virtual void OnInitWindow();
-  void SetInitialPath(const CStdString &path);
+  void OnInitWindow() override;
+  void SetInitialPath(const std::string &path);
   void GoParentFolder(int iList);
   void UpdateControl(int iList, int item);
-  bool Update(int iList, const CStdString &strDirectory); //???
-  void OnStart(CFileItem *pItem);
+  bool Update(int iList, const std::string &strDirectory); //???
+  void OnStart(CFileItem *pItem, const std::string &player);
   bool SelectItem(int iList, int &item);
   void ClearFileItems(int iList);
   void OnClick(int iList, int iItem);
@@ -74,9 +59,9 @@ protected:
   void Refresh();
   void Refresh(int iList);
   int GetSelectedItem(int iList);
-  bool HaveDiscOrConnection( CStdString& strPath, int iDriveType );
-  void GetDirectoryHistoryString(const CFileItem* pItem, CStdString& strHistoryString);
-  bool GetDirectory(int iList, const CStdString &strDirectory, CFileItemList &items);
+  bool HaveDiscOrConnection( std::string& strPath, int iDriveType );
+  void GetDirectoryHistoryString(const CFileItem* pItem, std::string& strHistoryString);
+  bool GetDirectory(int iList, const std::string &strDirectory, CFileItemList &items);
   int NumSelected(int iList);
   int GetFocusedList() const;
   // functions to check for actions that we can perform
@@ -91,16 +76,30 @@ protected:
 
   //
   bool bCheckShareConnectivity;
-  CStdString strCheckSharePath;
-
+  std::string strCheckSharePath;
 
   XFILE::CVirtualDirectory m_rootDir;
   CFileItemList* m_vecItems[2];
   typedef std::vector <CFileItem*> ::iterator ivecItems;
   CFileItem* m_Directory[2];
-  CStdString m_strParentPath[2];
-  CGUIDialogProgress* m_dlgProgress;
+  std::string m_strParentPath[2];
   CDirectoryHistory m_history[2];
 
   int m_errorHeading, m_errorLine;
+private:
+  std::atomic_bool m_updating = {false};
+  class CUpdateGuard
+  {
+  public:
+    CUpdateGuard(std::atomic_bool &update) : m_update(update)
+    {
+      m_update = true;
+    }
+    ~CUpdateGuard()
+    {
+      m_update = false;
+    }
+  private:
+    std::atomic_bool &m_update;
+  };
 };

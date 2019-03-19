@@ -1,27 +1,10 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-
-#include "system.h"
-
-#ifdef HAS_DVD_DRIVE
 
 #include "DetectDVDType.h"
 #include "guilib/LocalizeStrings.h"
@@ -29,28 +12,24 @@
 #include "utils/log.h"
 #include "cdioSupport.h"
 #include "filesystem/iso9660.h"
+#include "filesystem/File.h"
 #include "threads/SingleLock.h"
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
-#if !defined(TARGET_DARWIN) && !defined(__FreeBSD__)
+#if !defined(TARGET_DARWIN) && !defined(TARGET_FREEBSD)
 #include <linux/cdrom.h>
 #endif
 #endif
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "GUIUserMessages.h"
-#include "utils/URIUtils.h"
-#include "pictures/Picture.h"
-#if defined (LIBCDIO_VERSION_NUM) && (LIBCDIO_VERSION_NUM > 77) || defined (TARGET_DARWIN)
-#define USING_CDIO78
-#endif
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "filesystem/File.h"
-#include "FileItem.h"
 #include "Application.h"
-#include "IoSupport.h"
-#include "cdioSupport.h"
+#include "ServiceBroker.h"
+#include "storage/MediaManager.h"
 
 
 using namespace XFILE;
@@ -62,22 +41,17 @@ int CDetectDVDMedia::m_DriveState = DRIVE_CLOSED_NO_MEDIA;
 CCdInfo* CDetectDVDMedia::m_pCdInfo = NULL;
 time_t CDetectDVDMedia::m_LastPoll = 0;
 CDetectDVDMedia* CDetectDVDMedia::m_pInstance = NULL;
-CStdString CDetectDVDMedia::m_diskLabel = "";
-CStdString CDetectDVDMedia::m_diskPath = "";
+std::string CDetectDVDMedia::m_diskLabel = "";
+std::string CDetectDVDMedia::m_diskPath = "";
 
-CDetectDVDMedia::CDetectDVDMedia() : CThread("CDetectDVDMedia")
+CDetectDVDMedia::CDetectDVDMedia() : CThread("DetectDVDMedia"),
+  m_cdio(CLibcdio::GetInstance())
 {
-  m_bAutorun = false;
   m_bStop = false;
-  m_dwLastTrayState = 0;
-  m_bStartup = true;  // Do not autorun on startup
   m_pInstance = this;
-  m_cdio = CLibcdio::GetInstance();
 }
 
-CDetectDVDMedia::~CDetectDVDMedia()
-{
-}
+CDetectDVDMedia::~CDetectDVDMedia() = default;
 
 void CDetectDVDMedia::OnStartup()
 {
@@ -99,7 +73,7 @@ void CDetectDVDMedia::Process()
 
   while (( !m_bStop ))
   {
-    if (g_application.IsPlayingVideo())
+    if (g_application.GetAppPlayer().IsPlayingVideo())
     {
       Sleep(10000);
     }
@@ -123,7 +97,7 @@ void CDetectDVDMedia::OnExit()
 }
 
 // Gets state of the DVD drive
-VOID CDetectDVDMedia::UpdateDvdrom()
+void CDetectDVDMedia::UpdateDvdrom()
 {
   // Signal for WaitMediaReady()
   // that we are busy detecting the
@@ -133,7 +107,7 @@ VOID CDetectDVDMedia::UpdateDvdrom()
     switch (GetTrayState())
     {
       case DRIVE_NONE:
-        // TODO: reduce / stop polling for drive updates
+        //! @todo reduce / stop polling for drive updates
         break;
 
       case DRIVE_OPEN:
@@ -142,7 +116,7 @@ VOID CDetectDVDMedia::UpdateDvdrom()
           SetNewDVDShareUrl("D:\\", false, g_localizeStrings.Get(502));
           m_isoReader.Reset();
           CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_REMOVED_MEDIA);
-          g_windowManager.SendThreadMessage( msg );
+          CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage( msg );
           waitLock.Leave();
           m_DriveState = DRIVE_OPEN;
           return;
@@ -151,12 +125,12 @@ VOID CDetectDVDMedia::UpdateDvdrom()
 
       case DRIVE_NOT_READY:
         {
-          // drive is not ready (closing, opening)
+          // Drive is not ready (closing, opening)
           m_isoReader.Reset();
           SetNewDVDShareUrl("D:\\", false, g_localizeStrings.Get(503));
           m_DriveState = DRIVE_NOT_READY;
           // DVD-ROM in undefined state
-          // better delete old CD Information
+          // Better delete old CD Information
           if ( m_pCdInfo != NULL )
           {
             delete m_pCdInfo;
@@ -164,7 +138,7 @@ VOID CDetectDVDMedia::UpdateDvdrom()
           }
           waitLock.Leave();
           CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
-          g_windowManager.SendThreadMessage( msg );
+          CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage( msg );
           // Do we really need sleep here? This will fix: [ 1530771 ] "Open tray" problem
           // Sleep(6000);
           return ;
@@ -173,14 +147,14 @@ VOID CDetectDVDMedia::UpdateDvdrom()
 
       case DRIVE_CLOSED_NO_MEDIA:
         {
-          // nothing in there...
+          // Nothing in there...
           m_isoReader.Reset();
           SetNewDVDShareUrl("D:\\", false, g_localizeStrings.Get(504));
           m_DriveState = DRIVE_CLOSED_NO_MEDIA;
           // Send Message to GUI that disc has changed
           CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
           waitLock.Leave();
-          g_windowManager.SendThreadMessage( msg );
+          CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage( msg );
           return ;
         }
         break;
@@ -197,7 +171,7 @@ VOID CDetectDVDMedia::UpdateDvdrom()
             DetectMediaType();
             CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
             waitLock.Leave();
-            g_windowManager.SendThreadMessage( msg );
+            CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage( msg );
             // Tell the application object that a new Cd is inserted
             // So autorun can be started.
             if ( !m_bStartup )
@@ -222,7 +196,7 @@ void CDetectDVDMedia::DetectMediaType()
   bool bCDDA(false);
   CLog::Log(LOGINFO, "Detecting DVD-ROM media filesystem...");
 
-  CStdString strNewUrl;
+  std::string strNewUrl;
   CCdIoSupport cdio;
 
   // Delete old CD-Information
@@ -252,7 +226,7 @@ void CDetectDVDMedia::DetectMediaType()
   }
   else
   {
-    if (m_pCdInfo->IsUDF(1) || m_pCdInfo->IsUDFX(1))
+    if (m_pCdInfo->IsUDF(1))
       strNewUrl = "D:\\";
     else if (m_pCdInfo->IsAudio(1))
     {
@@ -265,7 +239,7 @@ void CDetectDVDMedia::DetectMediaType()
 
   if (m_pCdInfo->IsISOUDF(1))
   {
-    if (!g_advancedSettings.m_detectAsUdf)
+    if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_detectAsUdf)
     {
       strNewUrl = "iso9660://";
       m_isoReader.Scan();
@@ -288,7 +262,7 @@ void CDetectDVDMedia::DetectMediaType()
     CLog::Log(LOGWARNING, "Filesystem is not supported");
   }
 
-  CStdString strLabel = "";
+  std::string strLabel;
   if (bCDDA)
   {
     strLabel = "Audio-CD";
@@ -296,98 +270,31 @@ void CDetectDVDMedia::DetectMediaType()
   else
   {
     strLabel = m_pCdInfo->GetDiscLabel();
-    strLabel.TrimRight(" ");
+    StringUtils::TrimRight(strLabel);
   }
 
   SetNewDVDShareUrl( strNewUrl , bCDDA, strLabel);
 }
 
-void CDetectDVDMedia::SetNewDVDShareUrl( const CStdString& strNewUrl, bool bCDDA, const CStdString& strDiscLabel )
+void CDetectDVDMedia::SetNewDVDShareUrl( const std::string& strNewUrl, bool bCDDA, const std::string& strDiscLabel )
 {
-  CStdString strDescription = "DVD";
+  std::string strDescription = "DVD";
   if (bCDDA) strDescription = "CD";
 
   if (strDiscLabel != "") strDescription = strDiscLabel;
 
-  // store it in case others want it
+  // Store it in case others want it
   m_diskLabel = strDescription;
   m_diskPath = strNewUrl;
-
-  // delete any previously cached disc thumbnail
-  CStdString strCache = "special://temp/dvdicon.tbn";
-  if (CFile::Exists(strCache))
-    CFile::Delete(strCache);
-
-  // find and cache disc thumbnail
-  if (IsDiscInDrive() && !bCDDA)
-  {
-    CStdString strThumb;
-    CStdStringArray thumbs;
-    StringUtils::SplitString(g_advancedSettings.m_dvdThumbs, "|", thumbs);
-    for (unsigned int i = 0; i < thumbs.size(); ++i)
-    {
-      URIUtils::AddFileToFolder(m_diskPath, thumbs[i], strThumb);
-      CLog::Log(LOGDEBUG,"%s: looking for disc thumb:[%s]", __FUNCTION__, strThumb.c_str());
-      if (CFile::Exists(strThumb))
-      {
-        CLog::Log(LOGDEBUG,"%s: found disc thumb:[%s], caching as:[%s]", __FUNCTION__, strThumb.c_str(), strCache.c_str());
-        CPicture::CreateThumbnail(strThumb, strCache);
-        break;
-      }
-    }
-  }
 }
 
 DWORD CDetectDVDMedia::GetTrayState()
 {
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 
   char* dvdDevice = m_cdio->GetDeviceFileName();
   if (strlen(dvdDevice) == 0)
     return DRIVE_NONE;
-
-#ifndef USING_CDIO78
-
-  int fd = 0;
-
-  fd = open(dvdDevice, O_RDONLY | O_NONBLOCK);
-  if (fd<0)
-  {
-    CLog::Log(LOGERROR, "Unable to open CD-ROM device %s for polling.", dvdDevice);
-    return DRIVE_NOT_READY;
-  }
-
-  int drivestatus = ioctl(fd, CDROM_DRIVE_STATUS, 0);
-
-  switch(drivestatus)
-  {
-  case CDS_NO_INFO:
-    m_dwTrayState = TRAY_CLOSED_NO_MEDIA;
-    break;
-
-  case CDS_NO_DISC:
-    m_dwTrayState = TRAY_CLOSED_NO_MEDIA;
-    break;
-
-  case CDS_TRAY_OPEN:
-    m_dwTrayState = TRAY_OPEN;
-    break;
-
-  case CDS_DISC_OK:
-    m_dwTrayState = TRAY_CLOSED_MEDIA_PRESENT;
-    break;
-
-  case CDS_DRIVE_NOT_READY:
-    close(fd);
-    return DRIVE_NOT_READY;
-
-  default:
-    m_dwTrayState = TRAY_CLOSED_NO_MEDIA;
-  }
-
-  close(fd);
-
-#else
 
   // The following code works with libcdio >= 0.78
   // To enable it, download and install the latest version from
@@ -425,8 +332,7 @@ DWORD CDetectDVDMedia::GetTrayState()
   else
     return DRIVE_NOT_READY;
 
-#endif // USING_CDIO78
-#endif // _LINUX
+#endif // TARGET_POSIX
 
   if (m_dwTrayState == TRAY_CLOSED_MEDIA_PRESENT)
   {
@@ -505,8 +411,7 @@ bool CDetectDVDMedia::IsDiscInDrive()
 
 // Static function
 // Returns a CCdInfo class, which contains
-// Media information of the current
-// inserted CD.
+// Media information of the current inserted CD.
 // Can be NULL
 CCdInfo* CDetectDVDMedia::GetCdInfo()
 {
@@ -515,13 +420,12 @@ CCdInfo* CDetectDVDMedia::GetCdInfo()
   return pCdInfo;
 }
 
-const CStdString &CDetectDVDMedia::GetDVDLabel()
+const std::string &CDetectDVDMedia::GetDVDLabel()
 {
   return m_diskLabel;
 }
 
-const CStdString &CDetectDVDMedia::GetDVDPath()
+const std::string &CDetectDVDMedia::GetDVDPath()
 {
   return m_diskPath;
 }
-#endif

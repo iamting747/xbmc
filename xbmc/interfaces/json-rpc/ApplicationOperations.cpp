@@ -1,42 +1,34 @@
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "ApplicationOperations.h"
-#include "InputOperations.h"
 #include "Application.h"
-#include "ApplicationMessenger.h"
-#include "FileItem.h"
-#include "Util.h"
-#include "utils/log.h"
+#include "CompileInfo.h"
 #include "GUIInfoManager.h"
-#include "system.h"
+#include "InputOperations.h"
+#include "LangInfo.h"
+#include "Util.h"
+#include "input/Key.h"
+#include "messaging/ApplicationMessenger.h"
+#include "utils/log.h"
+#include "utils/StringUtils.h"
+#include "utils/Variant.h"
+#include <string.h>
 
 using namespace JSONRPC;
+using namespace KODI::MESSAGING;
 
-JSONRPC_STATUS CApplicationOperations::GetProperties(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::GetProperties(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   CVariant properties = CVariant(CVariant::VariantTypeObject);
   for (unsigned int index = 0; index < parameterObject["properties"].size(); index++)
   {
-    CStdString propertyName = parameterObject["properties"][index].asString();
+    std::string propertyName = parameterObject["properties"][index].asString();
     CVariant property;
     JSONRPC_STATUS ret;
     if ((ret = GetPropertyValue(propertyName, property)) != OK)
@@ -50,14 +42,14 @@ JSONRPC_STATUS CApplicationOperations::GetProperties(const CStdString &method, I
   return OK;
 }
 
-JSONRPC_STATUS CApplicationOperations::SetVolume(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::SetVolume(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   bool up = false;
   if (parameterObject["volume"].isInteger())
   {
-    int oldVolume = g_application.GetVolume();
+    int oldVolume = (int)g_application.GetVolume();
     int volume = (int)parameterObject["volume"].asInteger();
-  
+
     g_application.SetVolume((float)volume, true);
 
     up = oldVolume < volume;
@@ -85,56 +77,72 @@ JSONRPC_STATUS CApplicationOperations::SetVolume(const CStdString &method, ITran
   else
     return InvalidParams;
 
-  g_application.getApplicationMessenger().ShowVolumeBar(up);
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_VOLUME_SHOW, up ? ACTION_VOLUME_UP : ACTION_VOLUME_DOWN);
 
   return GetPropertyValue("volume", result);
 }
 
-JSONRPC_STATUS CApplicationOperations::SetMute(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::SetMute(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   if ((parameterObject["mute"].isString() && parameterObject["mute"].asString().compare("toggle") == 0) ||
       (parameterObject["mute"].isBoolean() && parameterObject["mute"].asBoolean() != g_application.IsMuted()))
-    g_application.getApplicationMessenger().SendAction(CAction(ACTION_MUTE));
+      CApplicationMessenger::GetInstance().SendMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1, static_cast<void*>(new CAction(ACTION_MUTE)));
   else if (!parameterObject["mute"].isBoolean() && !parameterObject["mute"].isString())
     return InvalidParams;
 
   return GetPropertyValue("muted", result);
 }
 
-JSONRPC_STATUS CApplicationOperations::Quit(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::Quit(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
-  g_application.getApplicationMessenger().Quit();
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_QUIT);
   return ACK;
 }
 
-JSONRPC_STATUS CApplicationOperations::GetPropertyValue(const CStdString &property, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::GetPropertyValue(const std::string &property, CVariant &result)
 {
-  if (property.Equals("volume"))
-    result = g_application.GetVolume();
-  else if (property.Equals("muted"))
+  if (property == "volume")
+    result = static_cast<int>(g_application.GetVolume());
+  else if (property == "muted")
     result = g_application.IsMuted();
-  else if (property.Equals("name"))
-    result = "XBMC";
-  else if (property.Equals("version"))
+  else if (property == "name")
+    result = CCompileInfo::GetAppName();
+  else if (property == "version")
   {
     result = CVariant(CVariant::VariantTypeObject);
-    result["major"] = VERSION_MAJOR;
-    result["minor"] = VERSION_MINOR;
-#ifdef GIT_REV
-    result["revision"] = GIT_REV;
-#endif
-    CStdString tag(VERSION_TAG);
-    if (tag.ToLower().Equals("-pre"))
+    result["major"] = CCompileInfo::GetMajor();
+    result["minor"] = CCompileInfo::GetMinor();
+    result["revision"] = CCompileInfo::GetSCMID();
+    std::string tag = CCompileInfo::GetSuffix();
+    if (StringUtils::StartsWithNoCase(tag, "alpha"))
+    {
       result["tag"] = "alpha";
-    else if (tag.ToLower().Left(5).Equals("-beta"))
+      result["tagversion"] = StringUtils::Mid(tag, 5);
+    }
+    else if (StringUtils::StartsWithNoCase(tag, "beta"))
+    {
       result["tag"] = "beta";
-    else if (tag.ToLower().Left(3).Equals("-rc"))
+      result["tagversion"] = StringUtils::Mid(tag, 4);
+    }
+    else if (StringUtils::StartsWithNoCase(tag, "rc"))
+    {
       result["tag"] = "releasecandidate";
+      result["tagversion"] = StringUtils::Mid(tag, 2);
+    }
     else if (tag.empty())
       result["tag"] = "stable";
     else
       result["tag"] = "prealpha";
   }
+  else if (property == "sorttokens")
+  {
+    result = CVariant(CVariant::VariantTypeArray); // Ensure no tokens returns as []
+    std::set<std::string> sortTokens = g_langInfo.GetSortTokens();
+    for (const auto& token : sortTokens)
+      result.append(token);
+  }
+  else if (property == "language")
+    result = g_langInfo.GetLocale().ToShortString();
   else
     return InvalidParams;
 

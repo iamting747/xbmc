@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "dll_tracker_file.h"
@@ -24,8 +11,9 @@
 #include "DllLoader.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
+#include <stdlib.h>
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #define dll_open open
 #define dll_fopen fopen
 #define dll_close close
@@ -56,10 +44,9 @@ extern "C" void tracker_file_free(uintptr_t caller, uintptr_t handle, TrackedFil
   if (pInfo)
   {
     CSingleLock lock(g_trackerLock);
-    TrackedFile* file;
     for (FileListIter it = pInfo->fileList.begin(); it != pInfo->fileList.end(); ++it)
     {
-      file = *it;
+      TrackedFile* file = *it;
       if (file->handle == handle && file->type == type)
       {
         free(file->name);
@@ -77,11 +64,10 @@ extern "C" void tracker_file_free_all(DllTrackInfo* pInfo)
   if (!pInfo->fileList.empty())
   {
     CSingleLock lock(g_trackerLock);
-    TrackedFile* file;
-    CLog::Log(LOGDEBUG, "%s: Detected open files: %"PRIdS"", pInfo->pDll->GetFileName(), pInfo->fileList.size());
+    CLog::Log(LOGDEBUG, "{0}: Detected open files: {1}", pInfo->pDll->GetFileName(), pInfo->fileList.size());
     for (FileListIter it = pInfo->fileList.begin(); it != pInfo->fileList.end(); ++it)
     {
-      file = *it;
+      TrackedFile* file = *it;
       CLog::Log(LOGDEBUG, "%s", file->name);
       free(file->name);
 

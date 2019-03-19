@@ -1,65 +1,43 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-//-----------------------------------------------------------------------------
-// File: cddb.cpp
-//
-// Desc: Make a connection to the CDDB database
-//
-// Hist: 00.00.01
-//
-//-----------------------------------------------------------------------------
 
-#include "system.h"
-
-#ifdef HAS_DVD_DRIVE
-
+#include <taglib/id3v1genres.h>
 #include "cddb.h"
+#include "CompileInfo.h"
 #include "network/DNSNameCache.h"
-#include "music/tags/Id3Tag.h"
+#include "ServiceBroker.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "filesystem/File.h"
-#include "GUIInfoManager.h"
 #include "utils/CharsetConverter.h"
 #include "utils/log.h"
+#include "utils/SystemInfo.h"
 
+#include <memory>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 
-using namespace std;
-using namespace MUSIC_INFO;
 using namespace MEDIA_DETECT;
-using namespace AUTOPTR;
 using namespace CDDB;
 
 //-------------------------------------------------------------------------------------------------------------------
 Xcddb::Xcddb()
-    : m_cddb_socket(INVALID_SOCKET)
+#if defined(TARGET_WINDOWS)
+    : m_cddb_socket(closesocket, INVALID_SOCKET)
+#else
+    : m_cddb_socket(close, -1)
+#endif
+    , m_cddb_ip_address(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_cddbAddress)
 {
   m_lastError = 0;
-  m_cddb_ip_adress = g_advancedSettings.m_cddbAddress;
-  cCacheDir = "";
-  m_strNull = "";
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -84,10 +62,16 @@ bool Xcddb::openSocket()
   hints.ai_protocol = IPPROTO_TCP;
   sprintf(service, "%d", CDDB_PORT);
 
-  res = getaddrinfo(m_cddb_ip_adress.c_str(), service, &hints, &result);
+  res = getaddrinfo(m_cddb_ip_address.c_str(), service, &hints, &result);
   if(res)
   {
-    CLog::Log(LOGERROR, "Xcddb::openSocket - failed to lookup %s with error %s", m_cddb_ip_adress.c_str(), gai_strerror(res));
+    std::string err;
+#if defined(TARGET_WINDOWS)
+    g_charsetConverter.wToUTF8(gai_strerror(res), err);
+#else
+    err = gai_strerror(res);
+#endif
+    CLog::Log(LOGERROR, "Xcddb::openSocket - failed to lookup %s with error %s", m_cddb_ip_address, err);
     res = getaddrinfo("130.179.31.49", service, &hints, &result);
     if(res)
       return false;
@@ -127,7 +111,7 @@ bool Xcddb::openSocket()
 //-------------------------------------------------------------------------------------------------------------------
 bool Xcddb::closeSocket()
 {
-  if ( m_cddb_socket.isValid() )
+  if (m_cddb_socket)
   {
     m_cddb_socket.reset();
   }
@@ -137,7 +121,7 @@ bool Xcddb::closeSocket()
 //-------------------------------------------------------------------------------------------------------------------
 bool Xcddb::Send( const void *buffer, int bytes )
 {
-  auto_aptr<char> tmp_buffer (new char[bytes + 10]);
+  std::unique_ptr<char[]> tmp_buffer(new char[bytes + 10]);
   strcpy(tmp_buffer.get(), (const char*)buffer);
   tmp_buffer.get()[bytes] = '.';
   tmp_buffer.get()[bytes + 1] = 0x0d;
@@ -163,12 +147,12 @@ bool Xcddb::Send( const char *buffer)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-string Xcddb::Recv(bool wait4point)
+std::string Xcddb::Recv(bool wait4point)
 {
   char tmpbuffer[1];
   char prevChar;
   int counter = 0;
-  string str_buffer;
+  std::string str_buffer;
 
 
   //##########################################################
@@ -196,7 +180,7 @@ string Xcddb::Recv(bool wait4point)
 
   //##########################################################
   // Write captured data information to the xbmc log file
-  CLog::Log(LOGDEBUG,"Xcddb::Recv Captured %d bytes // Buffer= %"PRIdS" bytes. Captured data follows on next line\n%s", counter, str_buffer.size(),(char *)str_buffer.c_str());
+  CLog::Log(LOGDEBUG,"Xcddb::Recv Captured {0} bytes // Buffer= {1} bytes. Captured data follows on next line\n{2}", counter, str_buffer.size(),str_buffer.c_str());
 
 
   return str_buffer;
@@ -211,15 +195,15 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo, int inexact_list_select)
     return false;
   }
 
-  unsigned long discid = pInfo->GetCddbDiscId();
+  uint32_t discid = pInfo->GetCddbDiscId();
 
 
   //##########################################################
   // Compose the cddb query string
-  CStdString read_buffer = getInexactCommand(inexact_list_select);
-  if (read_buffer.size() == 0)
+  std::string read_buffer = getInexactCommand(inexact_list_select);
+  if (read_buffer.empty())
   {
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select Size of inexaxt_list_select are 0");
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select Size of inexact_list_select are 0");
     m_lastError = E_PARAMETER_WRONG;
     return false;
   }
@@ -227,15 +211,15 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo, int inexact_list_select)
 
   //##########################################################
   // Read the data from cddb
-  Recv(false); //erstmal den Müll abholen
-  if ( !Send(read_buffer) )
+  Recv(false); // Clear pending data on our connection
+  if (!Send(read_buffer.c_str()))
   {
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select Error sending \"%s\"", read_buffer.c_str());
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select pInfo == NULL");
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select Error sending \"%s\"", read_buffer.c_str());
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select pInfo == NULL");
     m_lastError = E_NETWORK_ERROR_SEND;
     return false;
   }
-  CStdString recv_buffer = Recv(true);
+  std::string recv_buffer = Recv(true);
   m_lastError = atoi(recv_buffer.c_str());
   switch(m_lastError)
   {
@@ -250,7 +234,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo, int inexact_list_select)
   case 403: //Database entry is corrupt.
   case 409: //No handshake.
   default:
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select Error: \"%s\"", recv_buffer.c_str());
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select Error: \"%s\"", recv_buffer.c_str());
     return false;
   }
 
@@ -259,7 +243,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo, int inexact_list_select)
   // Quit
   if ( ! Send("quit") )
   {
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select Error sending \"%s\"", "quit");
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select Error sending \"%s\"", "quit");
     m_lastError = E_NETWORK_ERROR_SEND;
     return false;
   }
@@ -273,7 +257,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo, int inexact_list_select)
 
   case 530: //error, closing connection.
   default:
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select Error: \"%s\"", recv_buffer.c_str());
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select Error: \"%s\"", recv_buffer.c_str());
     return false;
   }
 
@@ -282,7 +266,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo, int inexact_list_select)
   // Close connection
   if ( !closeSocket() )
   {
-    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexaxt_list_select Error closing socket");
+    CLog::Log(LOGERROR, "Xcddb::queryCDinfo_inexact_list_select Error closing socket");
     m_lastError = E_NETWORK_ERROR_SEND;
     return false;
   }
@@ -356,7 +340,7 @@ int Xcddb::cddb_sum(int n)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-unsigned long Xcddb::calc_disc_id(int tot_trks, toc cdtoc[])
+uint32_t Xcddb::calc_disc_id(int tot_trks, toc cdtoc[])
 {
   int i = 0, t = 0, n = 0;
 
@@ -381,27 +365,26 @@ void Xcddb::addTitle(const char *buffer)
   if (buffer[7] == '=')
   { //Einstellig
     trk_nr = buffer[6] - 47;
-    strcpy(value, buffer + 8);
+    strncpy(value, buffer + 8, sizeof(value) - 1);
   }
   else if (buffer[8] == '=')
   { //Zweistellig
     trk_nr = ((buffer[6] - 48) * 10) + buffer[7] - 47;
-    strcpy(value, buffer + 9);
+    strncpy(value, buffer + 9, sizeof(value) - 1);
   }
   else if (buffer[9] == '=')
   { //Dreistellig
     trk_nr = ((buffer[6] - 48) * 100) + ((buffer[7] - 48) * 10) + buffer[8] - 47;
-    strcpy(value, buffer + 10);
+    strncpy(value, buffer + 10, sizeof(value) - 1);
   }
   else
   {
     return ;
   }
+  value[sizeof(value) - 1] = '\0';
 
   // track artist" / "track title
-  CStdString strValue = value;
-  CStdStringArray values;
-  StringUtils::SplitString(value, " / ", values);
+  std::vector<std::string> values = StringUtils::Split(value, " / ");
   if (values.size() > 1)
   {
     g_charsetConverter.unknownToUTF8(values[0]);
@@ -409,7 +392,7 @@ void Xcddb::addTitle(const char *buffer)
     g_charsetConverter.unknownToUTF8(values[1]);
     m_mapTitles[trk_nr] += values[1];
   }
-  else
+  else if (!values.empty())
   {
     g_charsetConverter.unknownToUTF8(values[0]);
     m_mapTitles[trk_nr] += values[0];
@@ -417,9 +400,9 @@ void Xcddb::addTitle(const char *buffer)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getInexactCommand(int select) const
+const std::string& Xcddb::getInexactCommand(int select) const
 {
-  typedef map<int, CStdString>::const_iterator iter;
+  typedef std::map<int, std::string>::const_iterator iter;
   iter i = m_mapInexact_cddb_command_list.find(select);
   if (i == m_mapInexact_cddb_command_list.end())
     return m_strNull;
@@ -427,9 +410,9 @@ const CStdString& Xcddb::getInexactCommand(int select) const
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getInexactArtist(int select) const
+const std::string& Xcddb::getInexactArtist(int select) const
 {
-  typedef map<int, CStdString>::const_iterator iter;
+  typedef std::map<int, std::string>::const_iterator iter;
   iter i = m_mapInexact_artist_list.find(select);
   if (i == m_mapInexact_artist_list.end())
     return m_strNull;
@@ -437,9 +420,9 @@ const CStdString& Xcddb::getInexactArtist(int select) const
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getInexactTitle(int select) const
+const std::string& Xcddb::getInexactTitle(int select) const
 {
-  typedef map<int, CStdString>::const_iterator iter;
+  typedef std::map<int, std::string>::const_iterator iter;
   iter i = m_mapInexact_title_list.find(select);
   if (i == m_mapInexact_title_list.end())
     return m_strNull;
@@ -447,9 +430,9 @@ const CStdString& Xcddb::getInexactTitle(int select) const
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getTrackArtist(int track) const
+const std::string& Xcddb::getTrackArtist(int track) const
 {
-  typedef map<int, CStdString>::const_iterator iter;
+  typedef std::map<int, std::string>::const_iterator iter;
   iter i = m_mapArtists.find(track);
   if (i == m_mapArtists.end())
     return m_strNull;
@@ -457,9 +440,9 @@ const CStdString& Xcddb::getTrackArtist(int track) const
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getTrackTitle(int track) const
+const std::string& Xcddb::getTrackTitle(int track) const
 {
-  typedef map<int, CStdString>::const_iterator iter;
+  typedef std::map<int, std::string>::const_iterator iter;
   iter i = m_mapTitles.find(track);
   if (i == m_mapTitles.end())
     return m_strNull;
@@ -467,13 +450,13 @@ const CStdString& Xcddb::getTrackTitle(int track) const
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-void Xcddb::getDiskTitle(CStdString& strdisk_title) const
+void Xcddb::getDiskTitle(std::string& strdisk_title) const
 {
   strdisk_title = m_strDisk_title;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-void Xcddb::getDiskArtist(CStdString& strdisk_artist) const
+void Xcddb::getDiskArtist(std::string& strdisk_artist) const
 {
   strdisk_artist = m_strDisk_artist;
 }
@@ -483,15 +466,15 @@ void Xcddb::parseData(const char *buffer)
 {
   //writeLog("parseData Start");
 
-  std::map<CStdString, CStdString> keywords;
-  std::list<CStdString> keywordsOrder; // remember order of keywords as it appears in data received from CDDB
+  std::map<std::string, std::string> keywords;
+  std::list<std::string> keywordsOrder; // remember order of keywords as it appears in data received from CDDB
 
-  // Collect all the keywords and put them in map. 
-  // Multiple occurrences of the same keyword indicate that 
+  // Collect all the keywords and put them in map.
+  // Multiple occurrences of the same keyword indicate that
   // the data contained on those lines should be concatenated
   char *line;
   const char trenner[3] = {'\n', '\r', '\0'};
-  line = strtok((char*)buffer, trenner); // skip first line
+  strtok(const_cast<char*>(buffer), trenner); // skip first line
   while ((line = strtok(0, trenner)))
   {
     // Lines that begin with # are comments, should be ignored
@@ -500,16 +483,15 @@ void Xcddb::parseData(const char *buffer)
       char *s = strstr(line, "=");
       if (s != NULL)
       {
-        CStdString strKeyword(line, s - line);
-        strKeyword.TrimRight(" ");
+        std::string strKeyword(line, s - line);
+        StringUtils::TrimRight(strKeyword);
 
-        CStdString strValue(s+1);
-        strValue.Replace("\\n", "\n"); 
-        strValue.Replace("\\t", "\t"); 
-        strValue.Replace("\\\\", "\\"); 
-        g_charsetConverter.unknownToUTF8(strValue);
+        std::string strValue(s+1);
+        StringUtils::Replace(strValue, "\\n", "\n");
+        StringUtils::Replace(strValue, "\\t", "\t");
+        StringUtils::Replace(strValue, "\\\\", "\\");
 
-        std::map<CStdString, CStdString>::const_iterator it = keywords.find(strKeyword);
+        std::map<std::string, std::string>::const_iterator it = keywords.find(strKeyword);
         if (it != keywords.end())
           strValue = it->second + strValue; // keyword occured before, concatenate
         else
@@ -520,23 +502,24 @@ void Xcddb::parseData(const char *buffer)
     }
   }
 
-  // parse keywords 
-  for (std::list<CStdString>::const_iterator it = keywordsOrder.begin(); it != keywordsOrder.end(); ++it)
+  // parse keywords
+  for (std::list<std::string>::const_iterator it = keywordsOrder.begin(); it != keywordsOrder.end(); ++it)
   {
-    CStdString strKeyword = *it;
-    CStdString strValue = keywords[strKeyword];
+    std::string strKeyword = *it;
+    std::string strValue = keywords[strKeyword];
 
+    //! @todo STRING_CLEANUP
     if (strKeyword == "DTITLE")
     {
       // DTITLE may contain artist and disc title, separated with " / ",
       // for example: DTITLE=Modern Talking / Album: Victory (The 11th Album)
       bool found = false;
-      for (int i = 0; i < strValue.GetLength() - 2; i++)
+      for (int i = 0; i < (int)strValue.size() - 2; i++)
       {
         if (strValue[i] == ' ' && strValue[i + 1] == '/' && strValue[i + 2] == ' ')
         {
-          m_strDisk_artist = TrimToUTF8(strValue.Left(i));
-          m_strDisk_title = TrimToUTF8(strValue.Mid(i+3));
+          m_strDisk_artist = TrimToUTF8(strValue.substr(0, i));
+          m_strDisk_title = TrimToUTF8(strValue.substr(i+3));
           found = true;
           break;
         }
@@ -549,40 +532,40 @@ void Xcddb::parseData(const char *buffer)
       m_strYear = TrimToUTF8(strValue);
     else if (strKeyword== "DGENRE")
       m_strGenre = TrimToUTF8(strValue);
-    else if (strKeyword.Left(6) == "TTITLE")
-      addTitle(strKeyword + "=" + strValue);
+    else if (StringUtils::StartsWith(strKeyword, "TTITLE"))
+      addTitle((strKeyword + "=" + strValue).c_str());
     else if (strKeyword == "EXTD")
     {
-      CStdString strExtd(strValue);
+      std::string strExtd(strValue);
 
-      if (m_strYear.IsEmpty())
+      if (m_strYear.empty())
       {
         // Extract Year from extended info
         // as a fallback
-        int iPos = strExtd.Find("YEAR:");
-        if (iPos > -1) // You never know if you really get UTF-8 strings from cddb
-          g_charsetConverter.unknownToUTF8(strExtd.Mid(iPos + 6, 4), m_strYear);
+        size_t iPos = strExtd.find("YEAR: ");
+        if (iPos != std::string::npos) // You never know if you really get UTF-8 strings from cddb
+          g_charsetConverter.unknownToUTF8(strExtd.substr(iPos + 6, 4), m_strYear);
       }
 
-      if (m_strGenre.IsEmpty())
+      if (m_strGenre.empty())
       {
         // Extract ID3 Genre
         // as a fallback
-        int iPos = strExtd.Find("ID3G:");
-        if (iPos > -1)
+        size_t iPos = strExtd.find("ID3G: ");
+        if (iPos != std::string::npos)
         {
-          CStdString strGenre = strExtd.Mid(iPos + 5, 4);
-          strGenre.TrimLeft(' ');
+          std::string strGenre = strExtd.substr(iPos + 5, 4);
+          StringUtils::TrimLeft(strGenre);
           if (StringUtils::IsNaturalNumber(strGenre))
           {
-            CID3Tag tag;
-            m_strGenre=tag.ParseMP3Genre(strGenre);
+            int iGenre = strtol(strGenre.c_str(), NULL, 10);
+            m_strGenre = TagLib::ID3v1::genre(iGenre).to8Bit(true);
           }
         }
       }
     }
-    else if (strKeyword.Left(4) == "EXTT")
-      addExtended(strKeyword + "=" + strValue);
+    else if (StringUtils::StartsWith(strKeyword, "EXTT"))
+      addExtended((strKeyword + "=" + strValue).c_str());
   }
 
   //writeLog("parseData Ende");
@@ -597,34 +580,35 @@ void Xcddb::addExtended(const char *buffer)
   if (buffer[5] == '=')
   { //Einstellig
     trk_nr = buffer[4] - 47;
-    strcpy(value, buffer + 6);
+    strncpy(value, buffer + 6, sizeof(value) - 1);
   }
   else if (buffer[6] == '=')
   { //Zweistellig
     trk_nr = ((buffer[4] - 48) * 10) + buffer[5] - 47;
-    strcpy(value, buffer + 7);
+    strncpy(value, buffer + 7, sizeof(value) - 1);
   }
   else if (buffer[7] == '=')
   { //Dreistellig
     trk_nr = ((buffer[4] - 48) * 100) + ((buffer[5] - 48) * 10) + buffer[6] - 47;
-    strcpy(value, buffer + 8);
+    strncpy(value, buffer + 8, sizeof(value) - 1);
   }
   else
   {
     return ;
   }
+  value[sizeof(value) - 1] = '\0';
 
-  CStdString strValue;
-  CStdString strValueUtf8=value;
+  std::string strValue;
+  std::string strValueUtf8=value;
   // You never know if you really get UTF-8 strings from cddb
   g_charsetConverter.unknownToUTF8(strValueUtf8, strValue);
   m_mapExtended_track[trk_nr] = strValue;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getTrackExtended(int track) const
+const std::string& Xcddb::getTrackExtended(int track) const
 {
-  typedef map<int, CStdString>::const_iterator iter;
+  typedef std::map<int, std::string>::const_iterator iter;
   iter i = m_mapExtended_track.find(track);
   if (i == m_mapExtended_track.end())
     return m_strNull;
@@ -724,12 +708,12 @@ void Xcddb::addInexactListLine(int line_cnt, const char *line, int len)
 
   m_mapInexact_cddb_command_list[line_cnt] = cddb_command;
 
-  CStdString strArtist=artist;
+  std::string strArtist=artist;
   // You never know if you really get UTF-8 strings from cddb
   g_charsetConverter.unknownToUTF8(artist, strArtist);
   m_mapInexact_artist_list[line_cnt] = strArtist;
 
-  CStdString strTitle=title;
+  std::string strTitle=title;
   // You never know if you really get UTF-8 strings from cddb
   g_charsetConverter.unknownToUTF8(title, strTitle);
   m_mapInexact_title_list[line_cnt] = strTitle;
@@ -740,21 +724,21 @@ void Xcddb::addInexactListLine(int line_cnt, const char *line, int len)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-void Xcddb::setCDDBIpAdress(const CStdString& ip_adress)
+void Xcddb::setCDDBIpAddress(const std::string& ip_address)
 {
-  m_cddb_ip_adress = ip_adress;
+  m_cddb_ip_address = ip_address;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-void Xcddb::setCacheDir(const CStdString& pCacheDir )
+void Xcddb::setCacheDir(const std::string& pCacheDir )
 {
   cCacheDir = pCacheDir;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-bool Xcddb::queryCache( unsigned long discid )
+bool Xcddb::queryCache( uint32_t discid )
 {
-  if (cCacheDir.size() == 0)
+  if (cCacheDir.empty())
     return false;
 
   XFILE::CFile file;
@@ -762,7 +746,6 @@ bool Xcddb::queryCache( unsigned long discid )
   {
     // Got a cachehit
     char buffer[4096];
-    OutputDebugString ( "cddb local cache hit.\n" );
     file.Read(buffer, 4096);
     file.Close();
     parseData( buffer );
@@ -773,18 +756,17 @@ bool Xcddb::queryCache( unsigned long discid )
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-bool Xcddb::writeCacheFile( const char* pBuffer, unsigned long discid )
+bool Xcddb::writeCacheFile( const char* pBuffer, uint32_t discid )
 {
-  if (cCacheDir.size() == 0)
+  if (cCacheDir.empty())
     return false;
 
   XFILE::CFile file;
   if (file.OpenForWrite(GetCacheFile(discid), true))
   {
-    OutputDebugString ( "Current cd saved to local cddb.\n" );
-    file.Write( (void*) pBuffer, strlen( pBuffer ) + 1 );
+    const bool ret = ( (size_t) file.Write((const void*)pBuffer, strlen(pBuffer) + 1) == strlen(pBuffer) + 1);
     file.Close();
-    return true;
+    return ret;
   }
 
   return false;
@@ -793,20 +775,20 @@ bool Xcddb::writeCacheFile( const char* pBuffer, unsigned long discid )
 //-------------------------------------------------------------------------------------------------------------------
 bool Xcddb::isCDCached( int nr_of_tracks, toc cdtoc[] )
 {
-  if (cCacheDir.size() == 0)
+  if (cCacheDir.empty())
     return false;
 
   return XFILE::CFile::Exists(GetCacheFile(calc_disc_id(nr_of_tracks, cdtoc)));
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getYear() const
+const std::string& Xcddb::getYear() const
 {
   return m_strYear;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-const CStdString& Xcddb::getGenre() const
+const std::string& Xcddb::getGenre() const
 {
   return m_strGenre;
 }
@@ -823,7 +805,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
 
   int lead_out = pInfo->GetTrackCount();
   int real_track_count = pInfo->GetTrackCount();
-  unsigned long discid = pInfo->GetCddbDiscId();
+  uint32_t discid = pInfo->GetCddbDiscId();
   unsigned long frames[100];
 
 
@@ -831,7 +813,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
   //
   if ( queryCache(discid) )
   {
-    CLog::Log(LOGDEBUG, "Xcddb::queryCDinfo discid [%08lx] already cached", discid);
+    CLog::Log(LOGDEBUG, "Xcddb::queryCDinfo discid [%08x] already cached", discid);
     return true;
   }
 
@@ -858,7 +840,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
     m_lastError = E_NETWORK_ERROR_OPEN_SOCKET;
     return false;
   }
-  CStdString recv_buffer = Recv(false);
+  std::string recv_buffer = Recv(false);
   m_lastError = atoi(recv_buffer.c_str());
   switch(m_lastError)
   {
@@ -877,7 +859,12 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
 
   //##########################################################
   // Send the Hello message
-  CStdString strGreeting = "cddb hello xbmc xbmc XBMC/"+g_infoManager.GetLabel(SYSTEM_BUILD_VERSION);
+  std::string version = CSysInfo::GetVersion();
+  std::string lcAppName = CCompileInfo::GetAppName();
+  StringUtils::ToLower(lcAppName);
+  if (version.find(" ") != std::string::npos)
+    version = version.substr(0, version.find(" "));
+  std::string strGreeting = "cddb hello " + lcAppName + " kodi.tv " + CCompileInfo::GetAppName() + " " + version;
   if ( ! Send(strGreeting.c_str()) )
   {
     CLog::Log(LOGERROR, "Xcddb::queryCDinfo Error sending \"%s\"", strGreeting.c_str());
@@ -930,7 +917,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
   strcat(query_buffer, "cddb query");
   {
     char tmp_buffer[256];
-    sprintf(tmp_buffer, " %08lx", discid);
+    sprintf(tmp_buffer, " %08x", discid);
     strcat(query_buffer, tmp_buffer);
   }
   {
@@ -960,14 +947,14 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
     return false;
   }
   // 200 rock d012180e Soundtrack / Hackers
-  CStdString read_buffer;
+  std::string read_buffer;
   recv_buffer = Recv(false);
   m_lastError = atoi(recv_buffer.c_str());
   switch(m_lastError)
   {
   case 200: //Found exact match
-    strtok((char *)recv_buffer.c_str(), " ");
-    read_buffer.Format("cddb read %s %08x", strtok(NULL, " "), discid);
+    strtok(const_cast<char *>(recv_buffer.c_str()), " ");
+    read_buffer = StringUtils::Format("cddb read %s %08x", strtok(NULL, " "), discid);
     break;
 
   case 210: //Found exact matches, list follows (until terminating marker)
@@ -997,7 +984,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
 
   //##########################################################
   // Read the data from cddb
-  if ( !Send(read_buffer) )
+  if ( !Send(read_buffer.c_str()) )
   {
     CLog::Log(LOGERROR, "Xcddb::queryCDinfo Error sending \"%s\"", read_buffer.c_str());
     m_lastError = E_NETWORK_ERROR_SEND;
@@ -1060,7 +1047,7 @@ bool Xcddb::queryCDinfo(CCdInfo* pInfo)
 //-------------------------------------------------------------------------------------------------------------------
 bool Xcddb::isCDCached( CCdInfo* pInfo )
 {
-  if (cCacheDir.size() == 0)
+  if (cCacheDir.empty())
     return false;
   if ( pInfo == NULL )
     return false;
@@ -1068,21 +1055,18 @@ bool Xcddb::isCDCached( CCdInfo* pInfo )
   return XFILE::CFile::Exists(GetCacheFile(pInfo->GetCddbDiscId()));
 }
 
-CStdString Xcddb::GetCacheFile(unsigned int disc_id) const
+std::string Xcddb::GetCacheFile(uint32_t disc_id) const
 {
-  CStdString strFileName;
-  strFileName.Format("%x.cddb", disc_id);
+  std::string strFileName;
+  strFileName = StringUtils::Format("%x.cddb", disc_id);
   return URIUtils::AddFileToFolder(cCacheDir, strFileName);
 }
 
-CStdString Xcddb::TrimToUTF8(const CStdString &untrimmedText)
+std::string Xcddb::TrimToUTF8(const std::string &untrimmedText)
 {
-  CStdString text(untrimmedText);
-  text.Trim();
+  std::string text(untrimmedText);
+  StringUtils::Trim(text);
   // You never know if you really get UTF-8 strings from cddb
   g_charsetConverter.unknownToUTF8(text);
   return text;
 }
-
-#endif
-

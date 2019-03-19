@@ -1,30 +1,24 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "Archive.h"
+#pragma once
+
+#include "utils/IArchivable.h"
 #include "ISerializable.h"
+#include <string>
 #include <vector>
+#include <memory>
 
 class CStreamDetails;
+class CVariant;
+struct VideoStreamInfo;
+struct AudioStreamInfo;
+struct SubtitleStreamInfo;
 
 class CStreamDetail : public IArchivable, public ISerializable
 {
@@ -35,10 +29,9 @@ public:
     SUBTITLE
   };
 
-  CStreamDetail(StreamType type) : m_eType(type) {};
-  virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
-  virtual bool IsWorseThan(CStreamDetail *that) { return true; };
+  explicit CStreamDetail(StreamType type) : m_eType(type), m_pParent(NULL) {};
+  virtual ~CStreamDetail() = default;
+  virtual bool IsWorseThan(const CStreamDetail &that) const = 0;
 
   const StreamType m_eType;
 
@@ -47,55 +40,62 @@ protected:
   friend class CStreamDetails;
 };
 
-class CStreamDetailVideo : public CStreamDetail
+class CStreamDetailVideo final : public CStreamDetail
 {
 public:
   CStreamDetailVideo();
-  virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
-  virtual bool IsWorseThan(CStreamDetail *that);
+  CStreamDetailVideo(const VideoStreamInfo &info, int duration = 0);
+  void Archive(CArchive& ar) override;
+  void Serialize(CVariant& value) const override;
+  bool IsWorseThan(const CStreamDetail &that) const override;
 
-  int m_iWidth;
-  int m_iHeight;
-  float m_fAspect;
-  int m_iDuration;
-  CStdString m_strCodec;
+  int m_iWidth = 0;
+  int m_iHeight = 0;
+  float m_fAspect = 0.0;
+  int m_iDuration = 0;
+  std::string m_strCodec;
+  std::string m_strStereoMode;
+  std::string m_strLanguage;
 };
 
-class CStreamDetailAudio : public CStreamDetail
+class CStreamDetailAudio final : public CStreamDetail
 {
 public:
   CStreamDetailAudio();
-  virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
-  virtual bool IsWorseThan(CStreamDetail *that);
+  CStreamDetailAudio(const AudioStreamInfo &info);
+  void Archive(CArchive& ar) override;
+  void Serialize(CVariant& value) const override;
+  bool IsWorseThan(const CStreamDetail &that) const override;
 
-  int m_iChannels;
-  CStdString m_strCodec;
-  CStdString m_strLanguage;
+  int m_iChannels = -1;
+  std::string m_strCodec;
+  std::string m_strLanguage;
 };
 
-class CStreamDetailSubtitle : public CStreamDetail
+class CStreamDetailSubtitle final : public CStreamDetail
 {
 public:
   CStreamDetailSubtitle();
-  virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
-  virtual bool IsWorseThan(CStreamDetail *that);
+  CStreamDetailSubtitle(const SubtitleStreamInfo &info);
+  CStreamDetailSubtitle& operator=(const CStreamDetailSubtitle &that);
+  void Archive(CArchive& ar) override;
+  void Serialize(CVariant& value) const override;
+  bool IsWorseThan(const CStreamDetail &that) const override;
 
-  CStdString m_strLanguage;
+  std::string m_strLanguage;
 };
 
-class CStreamDetails : public IArchivable, public ISerializable
+class CStreamDetails final : public IArchivable, public ISerializable
 {
 public:
   CStreamDetails() { Reset(); };
   CStreamDetails(const CStreamDetails &that);
-  ~CStreamDetails() { Reset(); };
   CStreamDetails& operator=(const CStreamDetails &that);
+  bool operator ==(const CStreamDetails &that) const;
+  bool operator !=(const CStreamDetails &that) const;
 
-  static CStdString VideoDimsToResolutionDescription(int iWidth, int iHeight);
-  static CStdString VideoAspectToAspectDescription(float fAspect);
+  static std::string VideoDimsToResolutionDescription(int iWidth, int iHeight);
+  static std::string VideoAspectToAspectDescription(float fAspect);
 
   bool HasItems(void) const { return m_vecItems.size() > 0; };
   int GetStreamCount(CStreamDetail::StreamType type) const;
@@ -104,39 +104,33 @@ public:
   int GetSubtitleStreamCount(void) const;
   const CStreamDetail* GetNthStream(CStreamDetail::StreamType type, int idx) const;
 
-  CStdString GetVideoCodec(int idx = 0) const;
+  std::string GetVideoCodec(int idx = 0) const;
   float GetVideoAspect(int idx = 0) const;
   int GetVideoWidth(int idx = 0) const;
   int GetVideoHeight(int idx = 0) const;
   int GetVideoDuration(int idx = 0) const;
+  void SetVideoDuration(int idx, const int duration);
+  std::string GetStereoMode(int idx = 0) const;
+  std::string GetVideoLanguage(int idx = 0) const;
 
-  CStdString GetAudioCodec(int idx = 0) const;
-  CStdString GetAudioLanguage(int idx = 0) const;
+  std::string GetAudioCodec(int idx = 0) const;
+  std::string GetAudioLanguage(int idx = 0) const;
   int GetAudioChannels(int idx = 0) const;
 
-  CStdString GetSubtitleLanguage(int idx = 0) const;
+  std::string GetSubtitleLanguage(int idx = 0) const;
 
   void AddStream(CStreamDetail *item);
   void Reset(void);
   void DetermineBestStreams(void);
 
-  virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
+  void Archive(CArchive& ar) override;
+  void Serialize(CVariant& value) const override;
 
-  // Language to use for "best" subtitle stream
-  CStdString m_strLanguage;
-
+  bool SetStreams(const VideoStreamInfo& videoInfo, int videoDuration, const AudioStreamInfo& audioInfo, const SubtitleStreamInfo& subtitleInfo);
 private:
   CStreamDetail *NewStream(CStreamDetail::StreamType type);
-  std::vector<CStreamDetail *> m_vecItems;
-  CStreamDetailVideo *m_pBestVideo;
-  CStreamDetailAudio *m_pBestAudio;
-  CStreamDetailSubtitle *m_pBestSubtitle;
-};
-
-class IStreamDetailsObserver
-{
-public:
-  virtual ~IStreamDetailsObserver() {}
-  virtual void OnStreamDetails(const CStreamDetails &details, const CStdString &strFileName, long lFileId) = 0;
+  std::vector<std::unique_ptr<CStreamDetail>> m_vecItems;
+  const CStreamDetailVideo *m_pBestVideo;
+  const CStreamDetailAudio *m_pBestAudio;
+  const CStreamDetailSubtitle *m_pBestSubtitle;
 };

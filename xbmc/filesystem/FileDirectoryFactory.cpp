@@ -1,217 +1,191 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-
-#include "system.h"
-#include "Util.h"
 #include "utils/URIUtils.h"
 #include "FileDirectoryFactory.h"
-#ifdef HAS_FILESYSTEM
-#include "OGGFileDirectory.h"
-#include "NSFFileDirectory.h"
-#include "SIDFileDirectory.h"
-#include "ASAPFileDirectory.h"
+#include "UDFDirectory.h"
 #include "RSSDirectory.h"
-#include "cores/paplayer/ASAPCodec.h"
+#if defined(TARGET_ANDROID)
+#include "platform/android/filesystem/APKDirectory.h"
 #endif
-#ifdef HAS_FILESYSTEM_RAR
-#include "RarDirectory.h"
-#endif
+#include "XbtDirectory.h"
 #include "ZipDirectory.h"
 #include "SmartPlaylistDirectory.h"
 #include "playlists/SmartPlayList.h"
 #include "PlaylistFileDirectory.h"
 #include "playlists/PlayListFactory.h"
 #include "Directory.h"
-#include "File.h"
-#include "ZipManager.h"
-#include "settings/AdvancedSettings.h"
 #include "FileItem.h"
+#include "utils/StringUtils.h"
+#include "URL.h"
+#include "ServiceBroker.h"
+#include "addons/AudioDecoder.h"
+#include "addons/VFSEntry.h"
+#include "addons/binary-addons/BinaryAddonBase.h"
+#include "AudioBookFileDirectory.h"
 
+using namespace ADDON;
 using namespace XFILE;
 using namespace PLAYLIST;
-using namespace std;
 
-CFileDirectoryFactory::CFileDirectoryFactory(void)
-{}
+CFileDirectoryFactory::CFileDirectoryFactory(void) = default;
 
-CFileDirectoryFactory::~CFileDirectoryFactory(void)
-{}
+CFileDirectoryFactory::~CFileDirectoryFactory(void) = default;
 
 // return NULL + set pItem->m_bIsFolder to remove it completely from list.
-IFileDirectory* CFileDirectoryFactory::Create(const CStdString& strPath, CFileItem* pItem, const CStdString& strMask)
+IFileDirectory* CFileDirectoryFactory::Create(const CURL& url, CFileItem* pItem, const std::string& strMask)
 {
-  CStdString strExtension=URIUtils::GetExtension(strPath);
-  strExtension.MakeLower();
+  if (url.IsProtocol("stack")) // disqualify stack as we need to work with each of the parts instead
+    return NULL;
 
-#ifdef HAS_FILESYSTEM
-  if ((strExtension.Equals(".ogg") || strExtension.Equals(".oga")) && CFile::Exists(strPath))
+  std::string strExtension=URIUtils::GetExtension(url);
+  StringUtils::ToLower(strExtension);
+  if (!strExtension.empty() && CServiceBroker::IsBinaryAddonCacheUp())
   {
-    IFileDirectory* pDir=new COGGFileDirectory;
-    //  Has the ogg file more than one bitstream?
-    if (pDir->ContainsFiles(strPath))
+    BinaryAddonBaseList addonInfos;
+    CServiceBroker::GetBinaryAddonManager().GetAddonInfos(addonInfos, true, ADDON_AUDIODECODER);
+    for (const auto& addonInfo : addonInfos)
     {
-      return pDir; // treat as directory
+      if (CAudioDecoder::HasTracks(addonInfo) &&
+          CAudioDecoder::GetExtensions(addonInfo).find(strExtension) != std::string::npos)
+      {
+        CAudioDecoder* result = new CAudioDecoder(addonInfo);
+        if (!result->CreateDecoder() || !result->ContainsFiles(url))
+        {
+          delete result;
+          return nullptr;
+        }
+        return result;
+      }
     }
-
-    delete pDir;
-    return NULL;
   }
-  if (strExtension.Equals(".nsf") && CFile::Exists(strPath))
+
+  if (!strExtension.empty() && CServiceBroker::IsBinaryAddonCacheUp())
   {
-    IFileDirectory* pDir=new CNSFFileDirectory;
-    //  Has the nsf file more than one track?
-    if (pDir->ContainsFiles(strPath))
-      return pDir; // treat as directory
+    for (const auto& vfsAddon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
+    {
+      if (vfsAddon->HasFileDirectories() &&
+          vfsAddon->GetExtensions().find(strExtension) != std::string::npos)
+      {
+        CVFSEntryIFileDirectoryWrapper* wrap = new CVFSEntryIFileDirectoryWrapper(vfsAddon);
+        if (wrap->ContainsFiles(url))
+        {
+          if (wrap->m_items.Size() == 1)
+          {
+            // one STORED file - collapse it down
+            *pItem = *wrap->m_items[0];
+          }
+          else
+          { // compressed or more than one file -> create a dir
+            pItem->SetPath(wrap->m_items.GetPath());
+            return wrap;
+          }
+        }
+        else
+          pItem->m_bIsFolder = true;
 
-    delete pDir;
-    return NULL;
+        delete wrap;
+        return nullptr;
+      }
+    }
   }
-  if (strExtension.Equals(".sid") && CFile::Exists(strPath))
-  {
-    IFileDirectory* pDir=new CSIDFileDirectory;
-    //  Has the sid file more than one track?
-    if (pDir->ContainsFiles(strPath))
-      return pDir; // treat as directory
-
-    delete pDir;
-    return NULL;
-  }
-#ifdef HAS_ASAP_CODEC
-  if (ASAPCodec::IsSupportedFormat(strExtension) && CFile::Exists(strPath))
-  {
-    IFileDirectory* pDir=new CASAPFileDirectory;
-    //  Has the asap file more than one track?
-    if (pDir->ContainsFiles(strPath))
-      return pDir; // treat as directory
-
-    delete pDir;
-    return NULL;
-  }
-#endif
 
   if (pItem->IsRSS())
     return new CRSSDirectory();
 
-#endif
-  if (strExtension.Equals(".zip"))
+  if (pItem->IsDiscImage())
+    return new CUDFDirectory();
+
+#if defined(TARGET_ANDROID)
+  if (url.IsFileType("apk"))
   {
-    CStdString strUrl;
-    URIUtils::CreateArchivePath(strUrl, "zip", strPath, "");
+    CURL zipURL = URIUtils::CreateArchivePath("apk", url);
 
     CFileItemList items;
-    CDirectory::GetDirectory(strUrl, items, strMask);
+    CDirectory::GetDirectory(zipURL, items, strMask, DIR_FLAG_DEFAULTS);
     if (items.Size() == 0) // no files
       pItem->m_bIsFolder = true;
-    else if (items.Size() == 1 && items[0]->m_idepth == 0)
+    else if (items.Size() == 1 && items[0]->m_idepth == 0 && !items[0]->m_bIsFolder)
+    {
+      // one STORED file - collapse it down
+      *pItem = *items[0];
+    }
+    else
+    { // compressed or more than one file -> create a apk dir
+      pItem->SetURL(zipURL);
+      return new CAPKDirectory;
+    }
+    return NULL;
+  }
+#endif
+  if (url.IsFileType("zip"))
+  {
+    CURL zipURL = URIUtils::CreateArchivePath("zip", url);
+
+    CFileItemList items;
+    CDirectory::GetDirectory(zipURL, items, strMask, DIR_FLAG_DEFAULTS);
+    if (items.Size() == 0) // no files
+      pItem->m_bIsFolder = true;
+    else if (items.Size() == 1 && items[0]->m_idepth == 0 && !items[0]->m_bIsFolder)
     {
       // one STORED file - collapse it down
       *pItem = *items[0];
     }
     else
     { // compressed or more than one file -> create a zip dir
-      pItem->SetPath(strUrl);
+      pItem->SetURL(zipURL);
       return new CZipDirectory;
     }
     return NULL;
   }
-  if (strExtension.Equals(".rar") || strExtension.Equals(".001"))
+  if (url.IsFileType("xbt"))
   {
-    CStdString strUrl;
-    URIUtils::CreateArchivePath(strUrl, "rar", strPath, "");
+    CURL xbtUrl = URIUtils::CreateArchivePath("xbt", url);
+    pItem->SetURL(xbtUrl);
 
-    vector<CStdString> tokens;
-    CUtil::Tokenize(strPath,tokens,".");
-    if (tokens.size() > 2)
-    {
-      if (strExtension.Equals(".001"))
-      {
-        if (tokens[tokens.size()-2].Equals("ts")) // .ts.001 - treat as a movie file to scratch some users itch
-          return NULL;
-      }
-      CStdString token = tokens[tokens.size()-2];
-      if (token.Left(4).CompareNoCase("part") == 0) // only list '.part01.rar'
-      {
-        // need this crap to avoid making mistakes - yeyh for the new rar naming scheme :/
-        struct __stat64 stat;
-        int digits = token.size()-4;
-        CStdString strNumber, strFormat;
-        strFormat.Format("part%%0%ii",digits);
-        strNumber.Format(strFormat.c_str(),1);
-        CStdString strPath2=strPath;
-        strPath2.Replace(token,strNumber);
-        if (atoi(token.substr(4).c_str()) > 1 && CFile::Stat(strPath2,&stat) == 0)
-        {
-          pItem->m_bIsFolder = true;
-          return NULL;
-        }
-      }
-    }
-
-    CFileItemList items;
-    CDirectory::GetDirectory(strUrl, items, strMask);
-    if (items.Size() == 0) // no files - hide this
-      pItem->m_bIsFolder = true;
-    else if (items.Size() == 1 && items[0]->m_idepth == 0x30)
-    {
-      // one STORED file - collapse it down
-      *pItem = *items[0];
-    }
-    else
-    {
-#ifdef HAS_FILESYSTEM_RAR
-      // compressed or more than one file -> create a rar dir
-      pItem->SetPath(strUrl);
-      return new CRarDirectory;
-#else
-      return NULL;
-#endif
-    }
-    return NULL;
+    return new CXbtDirectory();
   }
-  if (strExtension.Equals(".xsp"))
+  if (url.IsFileType("xsp"))
   { // XBMC Smart playlist - just XML renamed to XSP
     // read the name of the playlist in
     CSmartPlaylist playlist;
-    if (playlist.OpenAndReadName(strPath))
+    if (playlist.OpenAndReadName(url))
     {
       pItem->SetLabel(playlist.GetName());
-      pItem->SetLabelPreformated(true);
+      pItem->SetLabelPreformatted(true);
     }
     IFileDirectory* pDir=new CSmartPlaylistDirectory;
     return pDir; // treat as directory
   }
-  if (g_advancedSettings.m_playlistAsFolders && CPlayListFactory::IsPlaylist(strPath))
+  if (CPlayListFactory::IsPlaylist(url))
   { // Playlist file
     // currently we only return the directory if it contains
     // more than one file.  Reason is that .pls and .m3u may be used
     // for links to http streams etc.
     IFileDirectory *pDir = new CPlaylistFileDirectory();
     CFileItemList items;
-    if (pDir->GetDirectory(strPath, items))
+    if (pDir->GetDirectory(url, items))
     {
       if (items.Size() > 1)
         return pDir;
     }
     delete pDir;
+    return NULL;
+  }
+
+  if (pItem->IsAudioBook())
+  {
+    if (!pItem->HasMusicInfoTag() || pItem->m_lEndOffset <= 0)
+    {
+      std::unique_ptr<CAudioBookFileDirectory> pDir(new CAudioBookFileDirectory);
+      if (pDir->ContainsFiles(url))
+        return pDir.release();
+    }
     return NULL;
   }
   return NULL;

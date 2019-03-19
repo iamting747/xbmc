@@ -1,52 +1,36 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/StdString.h"
-#include "TextureBundleXPR.h"
+#pragma once
+
+#include <string>
+#include <vector>
 #include "TextureBundleXBT.h"
 
 class CTextureBundle
 {
 public:
-  CTextureBundle(void);
-  ~CTextureBundle(void);
-
-  void Cleanup();
+  CTextureBundle();
+  explicit CTextureBundle(bool useXBT);
+  ~CTextureBundle() = default;
 
   void SetThemeBundle(bool themeBundle);
-  bool HasFile(const CStdString& Filename);
-  void GetTexturesFromPath(const CStdString &path, std::vector<CStdString> &textures);
-  static CStdString Normalize(const CStdString &name);
+  bool HasFile(const std::string& Filename);
+  void GetTexturesFromPath(const std::string &path, std::vector<std::string> &textures);
+  static std::string Normalize(const std::string &name);
 
-  bool LoadTexture(const CStdString& Filename, CBaseTexture** ppTexture, int &width, int &height);
+  bool LoadTexture(const std::string& Filename, CBaseTexture** ppTexture, int &width, int &height);
 
-  int LoadAnim(const CStdString& Filename, CBaseTexture*** ppTextures, int &width, int &height, int& nLoops, int** ppDelays);
-
+  int LoadAnim(const std::string& Filename, CBaseTexture*** ppTextures, int &width, int &height, int& nLoops, int** ppDelays);
+  void Close();
 private:
-  CTextureBundleXPR m_tbXPR;
   CTextureBundleXBT m_tbXBT;
 
-  bool m_useXPR;
   bool m_useXBT;
 };
 

@@ -1,29 +1,15 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-/* DTS spec shows it suppors both BE and LE, we should not need to convert */
-
 #include <cassert>
-#include "system.h"
 #include "AEPackIEC61937.h"
+
+#include <string.h>
 
 #define IEC61937_PREAMBLE1  0xF872
 #define IEC61937_PREAMBLE2  0x4E1F
@@ -85,73 +71,19 @@ int CAEPackIEC61937::PackEAC3(uint8_t *data, unsigned int size, uint8_t *dest)
   return OUT_FRAMESTOBYTES(EAC3_FRAME_SIZE);
 }
 
-int CAEPackIEC61937::PackDTS_512(uint8_t *data, unsigned int size, uint8_t *dest)
+int CAEPackIEC61937::PackDTS_512(uint8_t *data, unsigned int size, uint8_t *dest, bool littleEndian)
 {
-  assert(size <= OUT_FRAMESTOBYTES(DTS1_FRAME_SIZE));
-  struct IEC61937Packet *packet = (struct IEC61937Packet*)dest;
-  packet->m_preamble1 = IEC61937_PREAMBLE1;
-  packet->m_preamble2 = IEC61937_PREAMBLE2;
-  packet->m_type      = IEC61937_TYPE_DTS1;
-  packet->m_length    = size << 3;
-
-  if (data == NULL)
-    data = packet->m_data;
-#ifdef __BIG_ENDIAN__
-  else
-    memcpy(packet->m_data, data, size);
-#else
-  size += size & 0x1;
-  SwapEndian((uint16_t*)packet->m_data, (uint16_t*)data, size >> 1);
-#endif
-
-  memset(packet->m_data + size, 0, OUT_FRAMESTOBYTES(DTS1_FRAME_SIZE) - IEC61937_DATA_OFFSET - size);
-  return OUT_FRAMESTOBYTES(DTS1_FRAME_SIZE);
+  return PackDTS(data, size, dest, littleEndian, OUT_FRAMESTOBYTES(DTS1_FRAME_SIZE), IEC61937_TYPE_DTS1);
 }
 
-int CAEPackIEC61937::PackDTS_1024(uint8_t *data, unsigned int size, uint8_t *dest)
+int CAEPackIEC61937::PackDTS_1024(uint8_t *data, unsigned int size, uint8_t *dest, bool littleEndian)
 {
-  assert(size <= OUT_FRAMESTOBYTES(DTS2_FRAME_SIZE));
-  struct IEC61937Packet *packet = (struct IEC61937Packet*)dest;
-  packet->m_preamble1 = IEC61937_PREAMBLE1;
-  packet->m_preamble2 = IEC61937_PREAMBLE2;
-  packet->m_type      = IEC61937_TYPE_DTS2;
-  packet->m_length    = size << 3;
-
-  if (data == NULL)
-    data = packet->m_data;
-#ifdef __BIG_ENDIAN__
-  else
-    memcpy(packet->m_data, data, size);
-#else
-  size += size & 0x1;
-  SwapEndian((uint16_t*)packet->m_data, (uint16_t*)data, size >> 1);
-#endif
-
-  memset(packet->m_data + size, 0, OUT_FRAMESTOBYTES(DTS2_FRAME_SIZE) - IEC61937_DATA_OFFSET - size);
-  return OUT_FRAMESTOBYTES(DTS2_FRAME_SIZE);
+  return PackDTS(data, size, dest, littleEndian, OUT_FRAMESTOBYTES(DTS2_FRAME_SIZE), IEC61937_TYPE_DTS2);
 }
 
-int CAEPackIEC61937::PackDTS_2048(uint8_t *data, unsigned int size, uint8_t *dest)
+int CAEPackIEC61937::PackDTS_2048(uint8_t *data, unsigned int size, uint8_t *dest, bool littleEndian)
 {
-  assert(size <= OUT_FRAMESTOBYTES(DTS3_FRAME_SIZE));
-  struct IEC61937Packet *packet = (struct IEC61937Packet*)dest;
-  packet->m_preamble1 = IEC61937_PREAMBLE1;
-  packet->m_preamble2 = IEC61937_PREAMBLE2;
-  packet->m_type      = IEC61937_TYPE_DTS3;
-  packet->m_length    = size << 3;
-
-  if (data == NULL)
-    data = packet->m_data;
-#ifdef __BIG_ENDIAN__
-  else
-    memcpy(packet->m_data, data, size);
-#else
-  size += size & 0x1;
-  SwapEndian((uint16_t*)packet->m_data, (uint16_t*)data, size >> 1);
-#endif
-
-  memset(packet->m_data + size, 0, OUT_FRAMESTOBYTES(DTS3_FRAME_SIZE) - IEC61937_DATA_OFFSET - size);
-  return OUT_FRAMESTOBYTES(DTS3_FRAME_SIZE);
+  return PackDTS(data, size, dest, littleEndian, OUT_FRAMESTOBYTES(DTS3_FRAME_SIZE), IEC61937_TYPE_DTS3);
 }
 
 int CAEPackIEC61937::PackTrueHD(uint8_t *data, unsigned int size, uint8_t *dest)
@@ -220,3 +152,84 @@ int CAEPackIEC61937::PackDTSHD(uint8_t *data, unsigned int size, uint8_t *dest, 
   return burstsize;
 }
 
+int CAEPackIEC61937::PackDTS(uint8_t *data, unsigned int size, uint8_t *dest, bool littleEndian,
+                             unsigned int frameSize, uint16_t type)
+{
+  assert(size <= frameSize);
+
+  /* BE is the standard endianness, byteswap needed if LE */
+  bool byteSwapNeeded = littleEndian;
+
+#ifndef __BIG_ENDIAN__
+  /* on LE systems we want LE output, byteswap needed */
+  byteSwapNeeded ^= true;
+#endif
+
+  struct IEC61937Packet *packet = (struct IEC61937Packet*)dest;
+  uint8_t *dataTo;
+
+  if (size == frameSize)
+  {
+    /* No packing possible or needed, DTS stream is suitable for direct output */
+    dataTo = dest;
+  }
+  else if (size <= frameSize - IEC61937_DATA_OFFSET)
+  {
+    /* Fits to IEC61937, perform packing */
+    packet->m_preamble1 = IEC61937_PREAMBLE1;
+    packet->m_preamble2 = IEC61937_PREAMBLE2;
+    packet->m_type      = type;
+    packet->m_length    = size << 3;
+
+    dataTo = packet->m_data;
+  }
+  else
+  {
+    /* Stream is unsuitable for both packing and direct output */
+    return 0;
+  }
+
+  if (data == NULL)
+    data = dataTo;
+  else if (!byteSwapNeeded)
+    memcpy(dataTo, data, size);
+
+  if (byteSwapNeeded)
+  {
+    size += size & 0x1;
+    SwapEndian((uint16_t*)dataTo, (uint16_t*)data, size >> 1);
+  }
+
+  if (size != frameSize)
+    memset(packet->m_data + size, 0, frameSize - IEC61937_DATA_OFFSET - size);
+
+  return frameSize;
+}
+
+int CAEPackIEC61937::PackPause(uint8_t *dest, unsigned int millis, unsigned int framesize, unsigned int samplerate, unsigned int rep_period, unsigned int encodedRate)
+{
+  int periodInBytes = rep_period * framesize;
+  double periodInTime = (double)rep_period / samplerate * 1000;
+  int periodsNeeded = millis / periodInTime;
+  int maxPeriods = MAX_IEC61937_PACKET / periodInBytes;
+  if (periodsNeeded > maxPeriods)
+    periodsNeeded = maxPeriods;
+  uint16_t gap = encodedRate * millis / 1000;
+
+  struct IEC61937Packet *packet = (struct IEC61937Packet*)dest;
+  packet->m_preamble1 = IEC61937_PREAMBLE1;
+  packet->m_preamble2 = IEC61937_PREAMBLE2;
+  packet->m_type = 3;
+  packet->m_length = 32;
+  memset(packet->m_data, 0, periodInBytes - 8);
+
+  for (int i=1; i<periodsNeeded; i++)
+  {
+    memcpy(dest+i*periodInBytes, dest, periodInBytes);
+  }
+
+  uint16_t *gapPtr = reinterpret_cast<uint16_t*>(packet->m_data);
+  *gapPtr = gap;
+
+  return periodsNeeded * periodInBytes;
+}

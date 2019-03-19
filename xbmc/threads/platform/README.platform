@@ -1,4 +1,3 @@
-
 In order to port xbmc to an unsupported platform, the threading model
 needs to replace the following classes:
 
@@ -43,10 +42,10 @@ ConditionVariable
 
 ConditionVariable - must be implemented to handle a ConditionVariable concept:
 
-   tempalte <class L> WaitResponse wait(L& lock);
-   tempalte <class L> WaitResponse wait(L& lock, int milliseconds);
+   template <class L> WaitResponse wait(L& lock);
+   template <class L> WaitResponse wait(L& lock, int milliseconds);
    void notifyAll();
    void notify();
 
-where L is a typename template variable that must satisfy Lockable concept 
+where L is a typename template variable that must satisfy Lockable concept
 defined above.

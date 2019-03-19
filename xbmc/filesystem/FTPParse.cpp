@@ -1,41 +1,24 @@
 /*
- *      Copyright (C) 2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2010-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#if _WIN32
-#define PCRE_STATIC
-#endif
 #include <pcrecpp.h>
 #include <cmath>
 #include "FTPParse.h"
 
 CFTPParse::CFTPParse()
 {
-  m_name = "";
   m_flagtrycwd = 0;
   m_flagtryretr = 0;
   m_size = 0;
   m_time = 0;
 }
 
-string CFTPParse::getName()
+std::string CFTPParse::getName()
 {
   return m_name;
 }
@@ -60,16 +43,16 @@ time_t CFTPParse::getTime()
   return m_time;
 }
 
-void CFTPParse::setTime(string str)
+void CFTPParse::setTime(std::string str)
 {
   /* Variables used to capture patterns via the regexes */
-  string month;
-  string day;
-  string year;
-  string hour;
-  string minute;
-  string second;
-  string am_or_pm;
+  std::string month;
+  std::string day;
+  std::string year;
+  std::string hour;
+  std::string minute;
+  std::string second;
+  std::string am_or_pm;
 
   /* time struct used to set the time_t variable */
   struct tm time_struct = {};
@@ -142,7 +125,13 @@ void CFTPParse::setTime(string str)
     time_struct.tm_mday = atoi(day.c_str());
 
     time_t t = time(NULL);
-    struct tm *current_time = localtime(&t);
+    struct tm *current_time;
+#ifdef LOCALTIME_R
+    struct tm result = {};
+    current_time = localtime_r(&t, &result);
+#else
+    current_time = localtime(&t);
+#endif
     if (pcrecpp::RE("(\\d{2}):(\\d{2})").FullMatch(year, &hour, &minute))
     {
       /* set the hour and minute */
@@ -333,21 +322,21 @@ int CFTPParse::getDayOfWeek(int month, int date, int year)
   return day_of_week;
 }
 
-int CFTPParse::FTPParse(string str)
+int CFTPParse::FTPParse(std::string str)
 {
   /* Various variable to capture patterns via the regexes */
-  string permissions;
-  string link_count;
-  string owner;
-  string group;
-  string size;
-  string date;
-  string name;
-  string type;
-  string stuff;
-  string facts;
-  string version;
-  string file_id;
+  std::string permissions;
+  std::string link_count;
+  std::string owner;
+  std::string group;
+  std::string size;
+  std::string date;
+  std::string name;
+  std::string type;
+  std::string stuff;
+  std::string facts;
+  std::string version;
+  std::string file_id;
 
   /* Regex for standard Unix listing formats */
   pcrecpp::RE unix_re("^([-bcdlps])" // type

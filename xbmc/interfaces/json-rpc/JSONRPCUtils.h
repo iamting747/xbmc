@@ -1,30 +1,22 @@
-#pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2012-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 51 Franklin Street, Suite 500, Boston, MA 02110, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "IClient.h"
 #include "ITransportLayer.h"
-#include "interfaces/IAnnouncer.h"
-#include "utils/StdString.h"
-#include "utils/Variant.h"
+#include "FileItem.h"
+#include "GUIUserMessages.h"
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+
+class CVariant;
 
 namespace JSONRPC
 {
@@ -50,40 +42,43 @@ namespace JSONRPC
   /*!
    \brief Function pointer for JSON-RPC methods
    */
-  typedef JSONRPC_STATUS (*MethodCall) (const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant& parameterObject, CVariant &result);
+  typedef JSONRPC_STATUS (*MethodCall) (const std::string &method, ITransportLayer *transport, IClient *client, const CVariant& parameterObject, CVariant &result);
 
   /*!
    \ingroup jsonrpc
    \brief Permission categories for json rpc methods
-   
-   A JSON-RPC method will only be called if the caller 
-   has the correct permissions to exectue the method.
+
+   A JSON-RPC method will only be called if the caller
+   has the correct permissions to execute the method.
    The method call needs to be perfectly threadsafe.
   */
   enum OperationPermission
   {
-    ReadData        =   0x1,
-    ControlPlayback =   0x2,
-    ControlNotify   =   0x4,
-    ControlPower    =   0x8,
-    UpdateData      =  0x10,
-    RemoveData      =  0x20,
-    Navigate        =  0x40,
-    WriteFile       =  0x80,
-    ControlSystem   = 0x100,
-    ControlGUI      = 0x200
+    ReadData        =    0x1,
+    ControlPlayback =    0x2,
+    ControlNotify   =    0x4,
+    ControlPower    =    0x8,
+    UpdateData      =   0x10,
+    RemoveData      =   0x20,
+    Navigate        =   0x40,
+    WriteFile       =   0x80,
+    ControlSystem   =  0x100,
+    ControlGUI      =  0x200,
+    ManageAddon     =  0x400,
+    ExecuteAddon    =  0x800,
+    ControlPVR      = 0x1000
   };
 
   const int OPERATION_PERMISSION_ALL = (ReadData | ControlPlayback | ControlNotify | ControlPower |
-                                        UpdateData | RemoveData | Navigate | WriteFile |
-                                        ControlSystem | ControlGUI);
+                                        UpdateData | RemoveData | Navigate | WriteFile | ControlSystem |
+                                        ControlGUI | ManageAddon | ExecuteAddon | ControlPVR);
 
   const int OPERATION_PERMISSION_NOTIFICATION = (ControlPlayback | ControlNotify | ControlPower | UpdateData |
                                                  RemoveData | Navigate | WriteFile | ControlSystem |
-                                                 ControlGUI);
+                                                 ControlGUI | ManageAddon | ExecuteAddon | ControlPVR);
 
   /*!
-    \brief Returns a string representation for the 
+    \brief Returns a string representation for the
     given OperationPermission
     \param permission Specific OperationPermission
     \return String representation of the given OperationPermission
@@ -112,6 +107,12 @@ namespace JSONRPC
       return "ControlSystem";
     case ControlGUI:
       return "ControlGUI";
+    case ManageAddon:
+      return "ManageAddon";
+    case ExecuteAddon:
+      return "ExecuteAddon";
+    case ControlPVR:
+      return "ControlPVR";
     default:
       return "Unknown";
     }
@@ -143,7 +144,29 @@ namespace JSONRPC
       return ControlSystem;
     if (permission.compare("ControlGUI") == 0)
       return ControlGUI;
+    if (permission.compare("ManageAddon") == 0)
+      return ManageAddon;
+    if (permission.compare("ExecuteAddon") == 0)
+      return ExecuteAddon;
+    if (permission.compare("ControlPVR") == 0)
+      return ControlPVR;
 
     return ReadData;
   }
+
+  class CJSONRPCUtils
+  {
+  public:
+    static inline void NotifyItemUpdated()
+    {
+      CGUIMessage message(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE, CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow());
+      CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(message);
+    }
+    static inline void NotifyItemUpdated(const CVideoInfoTag &info)
+    {
+      CFileItemPtr msgItem(new CFileItem(info));
+      CGUIMessage message(GUI_MSG_NOTIFY_ALL, CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow(), 0, GUI_MSG_UPDATE_ITEM, 0, msgItem);
+      CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(message);
+    }
+  };
 }

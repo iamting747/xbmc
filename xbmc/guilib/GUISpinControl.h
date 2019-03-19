@@ -1,33 +1,19 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
 /*!
 \file GUISpinControl.h
 \brief
 */
 
-#ifndef GUILIB_SPINCONTROL_H
-#define GUILIB_SPINCONTROL_H
-
-#pragma once
-
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
+#include <vector>
 
 #include "GUIControl.h"
 #include "GUITexture.h"
@@ -45,32 +31,35 @@
 class CGUISpinControl : public CGUIControl
 {
 public:
-  CGUISpinControl(int parentID, int controlID, float posX, float posY, float width, float height, const CTextureInfo& textureUp, const CTextureInfo& textureDown, const CTextureInfo& textureUpFocus, const CTextureInfo& textureDownFocus, const CLabelInfo& labelInfo, int iType);
-  virtual ~CGUISpinControl(void);
-  virtual CGUISpinControl *Clone() const { return new CGUISpinControl(*this); };
+  CGUISpinControl(int parentID, int controlID, float posX, float posY, float width, float height, const CTextureInfo& textureUp, const CTextureInfo& textureDown, const CTextureInfo& textureUpFocus, const CTextureInfo& textureDownFocus, const CTextureInfo& textureUpDisabled, const CTextureInfo& textureDownDisabled, const CLabelInfo& labelInfo, int iType);
+  ~CGUISpinControl(void) override;
+  CGUISpinControl *Clone() const override { return new CGUISpinControl(*this); };
 
-  virtual void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions);
-  virtual void Render();
-  virtual bool OnAction(const CAction &action);
-  virtual void OnLeft();
-  virtual void OnRight();
-  virtual bool HitTest(const CPoint &point) const;
-  virtual bool OnMouseOver(const CPoint &point);
-  virtual bool OnMessage(CGUIMessage& message);
-  virtual void AllocResources();
-  virtual void FreeResources(bool immediately = false);
-  virtual void DynamicResourceAlloc(bool bOnOff);
-  virtual void SetInvalid();
-  virtual void SetPosition(float posX, float posY);
-  virtual float GetWidth() const;
+  void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
+  void Render() override;
+  bool OnAction(const CAction &action) override;
+  void OnLeft() override;
+  void OnRight() override;
+  bool HitTest(const CPoint &point) const override;
+  bool OnMouseOver(const CPoint &point) override;
+  bool OnMessage(CGUIMessage& message) override;
+  void AllocResources() override;
+  void FreeResources(bool immediately = false) override;
+  void DynamicResourceAlloc(bool bOnOff) override;
+  void SetInvalid() override;
+  void SetPosition(float posX, float posY) override;
+  float GetWidth() const override;
   void SetRange(int iStart, int iEnd);
   void SetFloatRange(float fStart, float fEnd);
   void SetValue(int iValue);
-  void SetValueFromLabel(const CStdString &label);
+  void SetValueFromLabel(const std::string &label);
   void SetFloatValue(float fValue);
+  void SetStringValue(const std::string& strValue);
   int GetValue() const;
   float GetFloatValue() const;
+  std::string GetStringValue() const;
   void AddLabel(const std::string& strLabel, int iValue);
+  void AddLabel(const std::string& strLabel, const std::string& strValue);
   const std::string GetLabel() const;
   void SetReverse(bool bOnOff);
   int GetMaximum() const;
@@ -83,19 +72,21 @@ public:
   void SetShowRange(bool bOnoff) ;
   void SetShowOnePage(bool showOnePage) { m_showOnePage = showOnePage; };
   void Clear();
-  virtual CStdString GetDescription() const;
+  std::string GetDescription() const override;
   bool IsFocusedOnUp() const;
 
-  virtual bool IsVisible() const;
+  bool IsVisible() const override;
 
 protected:
-  virtual EVENT_RESULT OnMouseEvent(const CPoint &point, const CMouseEvent &event);
-  virtual bool UpdateColors();
+  EVENT_RESULT OnMouseEvent(const CPoint &point, const CMouseEvent &event) override;
+  bool UpdateColors() override;
   /*! \brief Render the spinner text
    \param posX position of the left edge of the text
+   \param posY positing of the top edge of the text
    \param width width of the text
+   \param height height of the text
    */
-  virtual void RenderText(float posX, float width);
+  virtual void RenderText(float posX, float posY, float width, float height);
   CGUILabel::COLOR GetTextColor() const;
   void PageUp();
   void PageDown();
@@ -116,10 +107,13 @@ protected:
   float m_fInterval;
   std::vector<std::string> m_vecLabels;
   std::vector<int> m_vecValues;
+  std::vector<std::string> m_vecStrValues;
   CGUITexture m_imgspinUp;
   CGUITexture m_imgspinDown;
   CGUITexture m_imgspinUpFocus;
   CGUITexture m_imgspinDownFocus;
+  CGUITexture m_imgspinUpDisabled;
+  CGUITexture m_imgspinDownDisabled;
   CGUILabel   m_label;
   bool m_bShowRange;
   char m_szTyped[10];
@@ -130,4 +124,4 @@ protected:
   int m_numItems;
   bool m_showOnePage;
 };
-#endif
+

@@ -1,35 +1,19 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-
-#include "system.h"
-
-#ifdef HAS_DVD_DRIVE
 
 #include "CDDAFile.h"
 #include <sys/stat.h>
-#include "Util.h"
 #include "URL.h"
 #include "storage/MediaManager.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
+
+#include <algorithm>
 
 using namespace MEDIA_DETECT;
 using namespace XFILE;
@@ -41,6 +25,7 @@ CFileCDDA::CFileCDDA(void)
   m_lsnCurrent = CDIO_INVALID_LSN;
   m_lsnEnd = CDIO_INVALID_LSN;
   m_cdio = CLibcdio::GetInstance();
+  m_iSectorCount = 52;
 }
 
 CFileCDDA::~CFileCDDA(void)
@@ -50,18 +35,16 @@ CFileCDDA::~CFileCDDA(void)
 
 bool CFileCDDA::Open(const CURL& url)
 {
-  CStdString strURL = url.GetWithoutFilename();
+  std::string strURL = url.GetWithoutFilename();
 
   if (!g_mediaManager.IsDiscInDrive(strURL) || !IsValidFile(url))
     return false;
 
   // Open the dvd drive
-#ifdef _LINUX
-  m_pCdIo = m_cdio->cdio_open(g_mediaManager.TranslateDevicePath(strURL), DRIVER_UNKNOWN);
-#elif defined(_WIN32)
-  m_pCdIo = m_cdio->cdio_open_win32(g_mediaManager.TranslateDevicePath(strURL, true));
-#else
-  m_pCdIo = m_cdio->cdio_open_win32("D:");
+#ifdef TARGET_POSIX
+  m_pCdIo = m_cdio->cdio_open(g_mediaManager.TranslateDevicePath(strURL).c_str(), DRIVER_UNKNOWN);
+#elif defined(TARGET_WINDOWS)
+  m_pCdIo = m_cdio->cdio_open_win32(g_mediaManager.TranslateDevicePath(strURL, true).c_str());
 #endif
   if (!m_pCdIo)
   {
@@ -116,28 +99,50 @@ int CFileCDDA::Stat(const CURL& url, struct __stat64* buffer)
   return -1;
 }
 
-unsigned int CFileCDDA::Read(void* lpBuf, int64_t uiBufSize)
+ssize_t CFileCDDA::Read(void* lpBuf, size_t uiBufSize)
 {
   if (!m_pCdIo || !g_mediaManager.IsDiscInDrive())
-    return 0;
+    return -1;
 
-  int iSectorCount = (int)uiBufSize / CDIO_CD_FRAMESIZE_RAW;
+  if (uiBufSize > SSIZE_MAX)
+    uiBufSize = SSIZE_MAX;
+
+  // limit number of sectors that fits in buffer by m_iSectorCount
+  int iSectorCount = std::min((int)uiBufSize / CDIO_CD_FRAMESIZE_RAW, m_iSectorCount);
 
   if (iSectorCount <= 0)
-    return 0;
+    return -1;
 
   // Are there enough sectors left to read
   if (m_lsnCurrent + iSectorCount > m_lsnEnd)
     iSectorCount = m_lsnEnd - m_lsnCurrent;
 
-  int iret = m_cdio->cdio_read_audio_sectors(m_pCdIo, lpBuf, m_lsnCurrent, iSectorCount);
-
-  if ( iret != DRIVER_OP_SUCCESS)
+  // The loop tries to solve read error problem by lowering number of sectors to read (iSectorCount).
+  // When problem is solved the proper number of sectors is stored in m_iSectorCount
+  int big_iSectorCount = iSectorCount;
+  while (iSectorCount > 0)
   {
-    CLog::Log(LOGERROR, "file cdda: Reading %d sectors of audio data starting at lsn %d failed with error code %i", iSectorCount, m_lsnCurrent, iret);
-    return 0;
-  }
+    int iret = m_cdio->cdio_read_audio_sectors(m_pCdIo, lpBuf, m_lsnCurrent, iSectorCount);
 
+    if (iret == DRIVER_OP_SUCCESS)
+    {
+      // If lower iSectorCount solved the problem limit it's value
+      if (iSectorCount < big_iSectorCount)
+      {
+        m_iSectorCount = iSectorCount;
+      }
+      break;
+    }
+
+    // iSectorCount is low so it cannot solve read problem
+    if (iSectorCount <= 10)
+    {
+      CLog::Log(LOGERROR, "file cdda: Reading %d sectors of audio data starting at lsn %d failed with error code %i", iSectorCount, m_lsnCurrent, iret);
+      return -1;
+    }
+
+    iSectorCount = 10;
+  }
   m_lsnCurrent += iSectorCount;
 
   return iSectorCount*CDIO_CD_FRAMESIZE_RAW;
@@ -168,7 +173,7 @@ int64_t CFileCDDA::Seek(int64_t iFilePosition, int iWhence /*=SEEK_SET*/)
     return -1;
   }
 
-  return ((m_lsnCurrent -m_lsnStart)*CDIO_CD_FRAMESIZE_RAW);
+  return ((int64_t)(m_lsnCurrent -m_lsnStart)*CDIO_CD_FRAMESIZE_RAW);
 }
 
 void CFileCDDA::Close()
@@ -185,7 +190,7 @@ int64_t CFileCDDA::GetPosition()
   if (!m_pCdIo)
     return 0;
 
-  return ((m_lsnCurrent -m_lsnStart)*CDIO_CD_FRAMESIZE_RAW);
+  return ((int64_t)(m_lsnCurrent -m_lsnStart)*CDIO_CD_FRAMESIZE_RAW);
 }
 
 int64_t CFileCDDA::GetLength()
@@ -193,22 +198,18 @@ int64_t CFileCDDA::GetLength()
   if (!m_pCdIo)
     return 0;
 
-  return ((m_lsnEnd -m_lsnStart)*CDIO_CD_FRAMESIZE_RAW);
+  return ((int64_t)(m_lsnEnd -m_lsnStart)*CDIO_CD_FRAMESIZE_RAW);
 }
 
 bool CFileCDDA::IsValidFile(const CURL& url)
 {
   // Only .cdda files are supported
-  CStdString strExtension;
-  URIUtils::GetExtension(url.Get(), strExtension);
-  strExtension.MakeLower();
-
-  return (strExtension == ".cdda");
+  return URIUtils::HasExtension(url.Get(), ".cdda");
 }
 
 int CFileCDDA::GetTrackNum(const CURL& url)
 {
-  CStdString strFileName = url.Get();
+  std::string strFileName = url.Get();
 
   // get track number from "cdda://local/01.cdda"
   return atoi(strFileName.substr(13, strFileName.size() - 13 - 5).c_str());
@@ -219,6 +220,3 @@ int CFileCDDA::GetChunkSize()
 {
   return SECTOR_COUNT*CDIO_CD_FRAMESIZE_RAW;
 }
-
-#endif
-

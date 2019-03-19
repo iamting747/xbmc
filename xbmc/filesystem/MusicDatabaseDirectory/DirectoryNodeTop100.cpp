@@ -1,37 +1,24 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "DirectoryNodeTop100.h"
 #include "FileItem.h"
 #include "guilib/LocalizeStrings.h"
+#include "utils/StringUtils.h"
 
-using namespace std;
 using namespace XFILE::MUSICDATABASEDIRECTORY;
 
 Node Top100Children[] = {
-                          { NODE_TYPE_SONG_TOP100,  1, 10504 },
-                          { NODE_TYPE_ALBUM_TOP100, 2, 10505 },
+                          { NODE_TYPE_SONG_TOP100,  "songs",   10504 },
+                          { NODE_TYPE_ALBUM_TOP100, "albums",  10505 },
                         };
 
-CDirectoryNodeTop100::CDirectoryNodeTop100(const CStdString& strName, CDirectoryNode* pParent)
+CDirectoryNodeTop100::CDirectoryNodeTop100(const std::string& strName, CDirectoryNode* pParent)
   : CDirectoryNode(NODE_TYPE_TOP100, strName, pParent)
 {
 
@@ -39,28 +26,27 @@ CDirectoryNodeTop100::CDirectoryNodeTop100(const CStdString& strName, CDirectory
 
 NODE_TYPE CDirectoryNodeTop100::GetChildType() const
 {
-  for (unsigned int i = 0; i < sizeof(Top100Children) / sizeof(Node); ++i)
-    if (GetID() == Top100Children[i].id)
-      return Top100Children[i].node;
+  for (const Node& node : Top100Children)
+    if (GetName() == node.id)
+      return node.node;
 
   return NODE_TYPE_NONE;
 }
 
-CStdString CDirectoryNodeTop100::GetLocalizedName() const
+std::string CDirectoryNodeTop100::GetLocalizedName() const
 {
-  for (unsigned int i = 0; i < sizeof(Top100Children) / sizeof(Node); ++i)
-    if (GetID() == Top100Children[i].id)
-      return g_localizeStrings.Get(Top100Children[i].label);
+  for (const Node& node : Top100Children)
+    if (GetName() == node.id)
+      return g_localizeStrings.Get(node.label);
   return "";
 }
 
 bool CDirectoryNodeTop100::GetContent(CFileItemList& items) const
 {
-  for (unsigned int i = 0; i < sizeof(Top100Children) / sizeof(Node); ++i)
+  for (const Node& node : Top100Children)
   {
-    CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(Top100Children[i].label)));
-    CStdString strDir;
-    strDir.Format("%ld/", Top100Children[i].id);
+    CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(node.label)));
+    std::string strDir = StringUtils::Format("%s/", node.id.c_str());
     pItem->SetPath(BuildPath() + strDir);
     pItem->m_bIsFolder = true;
     items.Add(pItem);

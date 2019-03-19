@@ -1,25 +1,15 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
 #pragma once
 
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
+#include <string>
+#include <vector>
 
 #include "guilib/GUIDialog.h"
 
@@ -31,18 +21,18 @@ class CGUIDialogMediaSource :
 {
 public:
   CGUIDialogMediaSource(void);
-  virtual ~CGUIDialogMediaSource(void);
-  virtual bool OnMessage(CGUIMessage& message);
-  virtual bool OnBack(int actionID);
-  virtual void OnWindowLoaded();
-  static bool ShowAndAddMediaSource(const CStdString &type);
-  static bool ShowAndEditMediaSource(const CStdString &type, const CMediaSource &share);
-  static bool ShowAndEditMediaSource(const CStdString &type, const CStdString &share);
+  ~CGUIDialogMediaSource(void) override;
+  bool OnMessage(CGUIMessage& message) override;
+  void OnDeinitWindow(int nextWindowID) override;
+  bool OnBack(int actionID) override;
+  static bool ShowAndAddMediaSource(const std::string &type);
+  static bool ShowAndEditMediaSource(const std::string &type, const CMediaSource &share);
+  static bool ShowAndEditMediaSource(const std::string &type, const std::string &share);
 
   bool IsConfirmed() const { return m_confirmed; };
 
   void SetShare(const CMediaSource &share);
-  void SetTypeOfMedia(const CStdString &type, bool editNotAdd = false);
+  void SetTypeOfMedia(const std::string &type, bool editNotAdd = false);
 protected:
   void OnPathBrowse(int item);
   void OnPath(int item);
@@ -53,12 +43,14 @@ protected:
   void UpdateButtons();
   int GetSelectedItem();
   void HighlightItem(int item);
+  std::string GetUniqueMediaSourceName();
+  static void OnMediaSourceChanged(const std::string& type, const std::string& oldName, const CMediaSource& share);
 
-  std::vector<CStdString> GetPaths();
+  std::vector<std::string> GetPaths() const;
 
-  CStdString m_type;
-  CStdString m_name;
+  std::string m_type;
+  std::string m_name;
   CFileItemList* m_paths;
-  bool m_confirmed;
-  bool m_bNameChanged;
+  bool m_confirmed = false;
+  bool m_bNameChanged = false;
 };

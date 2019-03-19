@@ -1,27 +1,13 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "music/Song.h"
+#pragma once
+
 #include "music/Album.h"
 #include "addons/Scraper.h"
 #include "utils/ScraperUrl.h"
@@ -35,19 +21,18 @@ namespace MUSIC_GRABBER
 class CMusicAlbumInfo
 {
 public:
-  CMusicAlbumInfo() : m_bLoaded(false), m_relevance(-1) {}
-  CMusicAlbumInfo(const CStdString& strAlbumInfo, const CScraperUrl& strAlbumURL);
-  CMusicAlbumInfo(const CStdString& strAlbum, const CStdString& strArtist, const CStdString& strAlbumInfo, const CScraperUrl& strAlbumURL);
-  virtual ~CMusicAlbumInfo() {}
+  CMusicAlbumInfo() = default;
+  CMusicAlbumInfo(const std::string& strAlbumInfo, const CScraperUrl& strAlbumURL);
+  CMusicAlbumInfo(const std::string& strAlbum, const std::string& strArtist, const std::string& strAlbumInfo, const CScraperUrl& strAlbumURL);
+  virtual ~CMusicAlbumInfo() = default;
 
   bool Loaded() const { return m_bLoaded; }
   void SetLoaded(bool bLoaded) { m_bLoaded = bLoaded; }
   const CAlbum &GetAlbum() const { return m_album; }
   CAlbum& GetAlbum() { return m_album; }
   void SetAlbum(CAlbum& album);
-  const VECSONGS &GetSongs() const { return m_album.songs; }
-  const CStdString& GetTitle2() const { return m_strTitle2; }
-  void SetTitle(const CStdString& strTitle) { m_album.strAlbum = strTitle; }
+  const std::string& GetTitle2() const { return m_strTitle2; }
+  void SetTitle(const std::string& strTitle) { m_album.strAlbum = strTitle; }
   const CScraperUrl& GetAlbumURL() const { return m_albumURL; }
   float GetRelevance() const { return m_relevance; }
   void SetRelevance(float relevance) { m_relevance = relevance; }
@@ -55,10 +40,10 @@ public:
   bool Load(XFILE::CCurlFile& http, const ADDON::ScraperPtr& scraper);
 
 protected:
-  bool m_bLoaded;
+  bool m_bLoaded = false;
   CAlbum m_album;
-  float m_relevance;
-  CStdString m_strTitle2;
+  float m_relevance = -1;
+  std::string m_strTitle2;
   CScraperUrl m_albumURL;
 };
 

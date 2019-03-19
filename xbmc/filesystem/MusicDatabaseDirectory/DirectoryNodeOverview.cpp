@@ -1,52 +1,41 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "DirectoryNodeOverview.h"
 #include "FileItem.h"
 #include "music/MusicDatabase.h"
 #include "guilib/LocalizeStrings.h"
+#include "utils/StringUtils.h"
 
 namespace XFILE
 {
   namespace MUSICDATABASEDIRECTORY
   {
     Node OverviewChildren[] = {
-                                { NODE_TYPE_GENRE,                 1, 135 },
-                                { NODE_TYPE_ARTIST,                2, 133 },
-                                { NODE_TYPE_ALBUM,                 3, 132 },
-                                { NODE_TYPE_SINGLES,              10, 1050 },
-                                { NODE_TYPE_SONG,                  4, 134 },
-                                { NODE_TYPE_YEAR,                  9, 652 },
-                                { NODE_TYPE_TOP100,                5, 271 },
-                                { NODE_TYPE_ALBUM_RECENTLY_ADDED,  6, 359 },
-                                { NODE_TYPE_ALBUM_RECENTLY_PLAYED, 7, 517 },
-                                { NODE_TYPE_ALBUM_COMPILATIONS,    8, 521 },
+                                { NODE_TYPE_GENRE,                 "genres",               135 },
+                                { NODE_TYPE_ARTIST,                "artists",              133 },
+                                { NODE_TYPE_ALBUM,                 "albums",               132 },
+                                { NODE_TYPE_SINGLES,               "singles",              1050 },
+                                { NODE_TYPE_SONG,                  "songs",                134 },
+                                { NODE_TYPE_YEAR,                  "years",                652 },
+                                { NODE_TYPE_TOP100,                "top100",               271 },
+                                { NODE_TYPE_ALBUM_RECENTLY_ADDED,  "recentlyaddedalbums",  359 },
+                                { NODE_TYPE_ALBUM_RECENTLY_PLAYED, "recentlyplayedalbums", 517 },
+                                { NODE_TYPE_ALBUM_COMPILATIONS,    "compilations",         521 },
+                                { NODE_TYPE_ROLE,                  "roles",              38033 },
+                                { NODE_TYPE_SOURCE,                "sources",            39031 },
                               };
   };
 };
 
-using namespace std;
 using namespace XFILE::MUSICDATABASEDIRECTORY;
 
-CDirectoryNodeOverview::CDirectoryNodeOverview(const CStdString& strName, CDirectoryNode* pParent)
+CDirectoryNodeOverview::CDirectoryNodeOverview(const std::string& strName, CDirectoryNode* pParent)
   : CDirectoryNode(NODE_TYPE_OVERVIEW, strName, pParent)
 {
 
@@ -54,40 +43,37 @@ CDirectoryNodeOverview::CDirectoryNodeOverview(const CStdString& strName, CDirec
 
 NODE_TYPE CDirectoryNodeOverview::GetChildType() const
 {
-  for (unsigned int i = 0; i < sizeof(OverviewChildren) / sizeof(Node); ++i)
-    if (GetID() == OverviewChildren[i].id)
-      return OverviewChildren[i].node;
+  for (const Node& node : OverviewChildren)
+    if (GetName() == node.id)
+      return node.node;
   return NODE_TYPE_NONE;
 }
 
-CStdString CDirectoryNodeOverview::GetLocalizedName() const
+std::string CDirectoryNodeOverview::GetLocalizedName() const
 {
-  for (unsigned int i = 0; i < sizeof(OverviewChildren) / sizeof(Node); ++i)
-    if (GetID() == OverviewChildren[i].id)
-      return g_localizeStrings.Get(OverviewChildren[i].label);
+  for (const Node& node : OverviewChildren)
+    if (GetName() == node.id)
+      return g_localizeStrings.Get(node.label);
   return "";
 }
 
 bool CDirectoryNodeOverview::GetContent(CFileItemList& items) const
 {
   CMusicDatabase musicDatabase;
-  bool showSingles = false;
-  if (musicDatabase.Open())
-  {
-    if (musicDatabase.GetSongsCount("where idAlbum in (select idAlbum from album where strAlbum='')") > 0)
-      showSingles = true;
-  }
+  musicDatabase.Open();
+
+  bool hasSingles = (musicDatabase.GetSinglesCount() > 0);
+  bool hasCompilations = (musicDatabase.GetCompilationAlbumsCount() > 0);
 
   for (unsigned int i = 0; i < sizeof(OverviewChildren) / sizeof(Node); ++i)
   {
-    if (i == 3 && !showSingles) // singles
+    if (i == 3 && !hasSingles)
       continue;
-    if (i == 9 && musicDatabase.GetVariousArtistsAlbumsCount() == 0) // compilations
+    if (i == 9 && !hasCompilations)
       continue;
 
     CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(OverviewChildren[i].label)));
-    CStdString strDir;
-    strDir.Format("%ld/", OverviewChildren[i].id);
+    std::string strDir = StringUtils::Format("%s/", OverviewChildren[i].id.c_str());
     pItem->SetPath(BuildPath() + strDir);
     pItem->m_bIsFolder = true;
     pItem->SetCanQueue(false);

@@ -1,27 +1,17 @@
-#pragma once
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "IDirectory.h"
 #include "NFSFile.h"
+
+struct nfsdirent;
 
 namespace XFILE
 {
@@ -29,16 +19,16 @@ namespace XFILE
   {
     public:
       CNFSDirectory(void);
-      virtual ~CNFSDirectory(void);
-      virtual bool GetDirectory(const CStdString& strPath, CFileItemList &items);
-      virtual DIR_CACHE_TYPE GetCacheType(const CStdString &strPath) const { return DIR_CACHE_ONCE; };
-      virtual bool Create(const char* strPath);
-      virtual bool Exists(const char* strPath);
-      virtual bool Remove(const char* strPath);
+      ~CNFSDirectory(void) override;
+      bool GetDirectory(const CURL& url, CFileItemList &items) override;
+      DIR_CACHE_TYPE GetCacheType(const CURL& url) const override { return DIR_CACHE_ONCE; };
+      bool Create(const CURL& url) override;
+      bool Exists(const CURL& url) override;
+      bool Remove(const CURL& url) override;
     private:
       bool GetServerList(CFileItemList &items);
-      bool GetDirectoryFromExportList(const CStdString& strPath, CFileItemList &items);
-      bool ResolveSymlink( const CStdString &dirName, struct nfsdirent *dirent, CURL &resolvedUrl);
+      bool GetDirectoryFromExportList(const std::string& strPath, CFileItemList &items);
+      bool ResolveSymlink( const std::string &dirName, struct nfsdirent *dirent, CURL &resolvedUrl);
   };
 }
 

@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIListItemLayout.h"
@@ -27,20 +14,19 @@
 #include "GUIImage.h"
 #include "utils/XBMCTinyXML.h"
 
-using namespace std;
+using namespace KODI::GUILIB;
 
 CGUIListItemLayout::CGUIListItemLayout()
 : m_group(0, 0, 0, 0, 0, 0)
 {
   m_width = 0;
   m_height = 0;
-  m_condition = 0;
   m_focused = false;
   m_invalidated = true;
   m_group.SetPushUpdates(true);
 }
 
-CGUIListItemLayout::CGUIListItemLayout(const CGUIListItemLayout &from)
+CGUIListItemLayout::CGUIListItemLayout(const CGUIListItemLayout &from, CGUIControl *control)
 : m_group(from.m_group), m_isPlaying(from.m_isPlaying)
 {
   m_width = from.m_width;
@@ -48,10 +34,7 @@ CGUIListItemLayout::CGUIListItemLayout(const CGUIListItemLayout &from)
   m_focused = from.m_focused;
   m_condition = from.m_condition;
   m_invalidated = true;
-}
-
-CGUIListItemLayout::~CGUIListItemLayout()
-{
+  m_group.SetParentControl(control);
 }
 
 bool CGUIListItemLayout::IsAnimating(ANIMATION_TYPE animType)
@@ -76,7 +59,7 @@ void CGUIListItemLayout::Process(CGUIListItem *item, int parentID, unsigned int 
     m_invalidated = false;
     // could use a dynamic cast here if RTTI was enabled.  As it's not,
     // let's use a static cast with a virtual base function
-    CFileItem *fileItem = item->IsFileItem() ? (CFileItem *)item : new CFileItem(*item);
+    CFileItem *fileItem = item->IsFileItem() ? static_cast<CFileItem*>(item) : new CFileItem(*item);
     m_isPlaying.Update(item);
     m_group.SetInvalid();
     m_group.UpdateInfo(fileItem);
@@ -106,6 +89,26 @@ unsigned int CGUIListItemLayout::GetFocusedItem() const
   return m_group.GetFocusedItem();
 }
 
+void CGUIListItemLayout::SetWidth(float width)
+{
+  if (m_width != width)
+  {
+    m_group.EnlargeWidth(width - m_width);
+    m_width = width;
+    SetInvalid();
+  }
+}
+
+void CGUIListItemLayout::SetHeight(float height)
+{
+  if (m_height != height)
+  {
+    m_group.EnlargeHeight(height - m_height);
+    m_height = height;
+    SetInvalid();
+  }
+}
+
 void CGUIListItemLayout::SelectItemFromPoint(const CPoint &point)
 {
   m_group.SelectItemFromPoint(point);
@@ -123,7 +126,7 @@ bool CGUIListItemLayout::MoveRight()
 
 bool CGUIListItemLayout::CheckCondition()
 {
-  return !m_condition || g_infoManager.GetBoolValue(m_condition);
+  return !m_condition || m_condition->Get();
 }
 
 void CGUIListItemLayout::LoadControl(TiXmlElement *child, CGUIControlGroup *group)
@@ -143,37 +146,42 @@ void CGUIListItemLayout::LoadControl(TiXmlElement *child, CGUIControlGroup *grou
       TiXmlElement *grandChild = child->FirstChildElement("control");
       while (grandChild)
       {
-        LoadControl(grandChild, (CGUIControlGroup *)control);
+        LoadControl(grandChild, static_cast<CGUIControlGroup*>(control));
         grandChild = grandChild->NextSiblingElement("control");
       }
     }
   }
 }
 
-void CGUIListItemLayout::LoadLayout(TiXmlElement *layout, int context, bool focused)
+void CGUIListItemLayout::LoadLayout(TiXmlElement *layout, int context, bool focused, float maxWidth, float maxHeight)
 {
   m_focused = focused;
   layout->QueryFloatAttribute("width", &m_width);
   layout->QueryFloatAttribute("height", &m_height);
   const char *condition = layout->Attribute("condition");
   if (condition)
-    m_condition = g_infoManager.Register(condition, context);
+    m_condition = CServiceBroker::GetGUI()->GetInfoManager().Register(condition, context);
   m_isPlaying.Parse("listitem.isplaying", context);
-  TiXmlElement *child = layout->FirstChildElement("control");
+  // ensure width and height are valid
+  if (!m_width)
+    m_width = maxWidth;
+  if (!m_height)
+    m_height = maxHeight;
+  m_width = std::max(1.0f, m_width);
+  m_height = std::max(1.0f, m_height);
   m_group.SetWidth(m_width);
   m_group.SetHeight(m_height);
+
+  TiXmlElement *child = layout->FirstChildElement("control");
   while (child)
   {
     LoadControl(child, &m_group);
     child = child->NextSiblingElement("control");
   }
-  // ensure width and height are valid
-  m_width = std::max(1.0f, m_width);
-  m_height = std::max(1.0f, m_height);
 }
 
-//#ifdef PRE_SKIN_VERSION_9_10_COMPATIBILITY
-void CGUIListItemLayout::CreateListControlLayouts(float width, float height, bool focused, const CLabelInfo &labelInfo, const CLabelInfo &labelInfo2, const CTextureInfo &texture, const CTextureInfo &textureFocus, float texHeight, float iconWidth, float iconHeight, const CStdString &nofocusCondition, const CStdString &focusCondition)
+//#ifdef GUILIB_PYTHON_COMPATIBILITY
+void CGUIListItemLayout::CreateListControlLayouts(float width, float height, bool focused, const CLabelInfo &labelInfo, const CLabelInfo &labelInfo2, const CTextureInfo &texture, const CTextureInfo &textureFocus, float texHeight, float iconWidth, float iconHeight, const std::string &nofocusCondition, const std::string &focusCondition)
 {
   m_width = width;
   m_height = height;
@@ -189,14 +197,14 @@ void CGUIListItemLayout::CreateListControlLayouts(float width, float height, boo
     m_group.AddControl(tex);
   }
   CGUIImage *image = new CGUIImage(0, 0, 8, 0, iconWidth, texHeight, CTextureInfo(""));
-  image->SetInfo(CGUIInfoLabel("$INFO[ListItem.Icon]", "", m_group.GetParentID()));
+  image->SetInfo(GUIINFO::CGUIInfoLabel("$INFO[ListItem.Icon]", "", m_group.GetParentID()));
   image->SetAspectRatio(CAspectRatio::AR_KEEP);
   m_group.AddControl(image);
   float x = iconWidth + labelInfo.offsetX + 10;
-  CGUIListLabel *label = new CGUIListLabel(0, 0, x, labelInfo.offsetY, width - x - 18, height, labelInfo, CGUIInfoLabel("$INFO[ListItem.Label]", "", m_group.GetParentID()), false);
+  CGUIListLabel *label = new CGUIListLabel(0, 0, x, labelInfo.offsetY, width - x - 18, height, labelInfo, GUIINFO::CGUIInfoLabel("$INFO[ListItem.Label]", "", m_group.GetParentID()), CGUIControl::FOCUS);
   m_group.AddControl(label);
   x = labelInfo2.offsetX ? labelInfo2.offsetX : m_width - 16;
-  label = new CGUIListLabel(0, 0, x, labelInfo2.offsetY, x - iconWidth - 20, height, labelInfo2, CGUIInfoLabel("$INFO[ListItem.Label2]", "", m_group.GetParentID()), false);
+  label = new CGUIListLabel(0, 0, x, labelInfo2.offsetY, x - iconWidth - 20, height, labelInfo2, GUIINFO::CGUIInfoLabel("$INFO[ListItem.Label2]", "", m_group.GetParentID()), CGUIControl::FOCUS);
   m_group.AddControl(label);
 }
 //#endif

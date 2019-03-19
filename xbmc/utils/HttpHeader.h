@@ -1,53 +1,53 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <map>
+#pragma once
+
+#include <utility>
 #include <vector>
-#include "StdString.h"
-
-#define HTTPHEADER_CONTENT_TYPE "Content-Type"
-
-typedef std::map<CStdString, CStdString> HeaderParams;
-typedef std::map<CStdString, CStdString>::iterator HeaderParamsIter;
+#include <string>
 
 class CHttpHeader
 {
 public:
+  typedef std::pair<std::string, std::string> HeaderParamValue;
+  typedef std::vector<HeaderParamValue> HeaderParams;
+  typedef HeaderParams::iterator HeaderParamsIter;
+
   CHttpHeader();
   ~CHttpHeader();
 
-  void Parse(CStdString strData);
-  CStdString GetValue(CStdString strParam) const;
+  void Parse(const std::string& strData);
+  void AddParam(const std::string& param, const std::string& value, const bool overwrite = false);
 
-  void GetHeader(CStdString& strHeader) const;
+  std::string GetValue(const std::string& strParam) const;
+  std::vector<std::string> GetValues(std::string strParam) const;
 
-  CStdString GetMimeType() { return GetValue(HTTPHEADER_CONTENT_TYPE); }
-  CStdString GetProtoLine() { return m_protoLine; }
+  std::string GetHeader(void) const;
+
+  std::string GetMimeType(void) const;
+  std::string GetCharset(void) const;
+  inline std::string GetProtoLine() const
+  { return m_protoLine; }
+
+  inline bool IsHeaderDone(void) const
+  { return m_headerdone; }
 
   void Clear();
 
 protected:
+  std::string GetValueRaw(const std::string& strParam) const;
+  bool ParseLine(const std::string& headerLine);
+
   HeaderParams m_params;
-  CStdString   m_protoLine;
+  std::string   m_protoLine;
+  bool m_headerdone;
+  std::string m_lastHeaderLine;
+  static const char* const m_whitespaceChars;
 };
 

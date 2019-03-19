@@ -1,43 +1,36 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
 #pragma once
 
-/*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
- */
+#include <vector>
 
 #include "MusicAlbumInfo.h"
 #include "MusicArtistInfo.h"
 #include "addons/Scraper.h"
 #include "threads/Thread.h"
-#include "filesystem/CurlFile.h"
+
+namespace XFILE
+{
+class CurlFile;
+}
 
 namespace MUSIC_GRABBER
 {
 class CMusicInfoScraper : public CThread
 {
 public:
-  CMusicInfoScraper(const ADDON::ScraperPtr &scraper);
-  virtual ~CMusicInfoScraper(void);
-  void FindAlbumInfo(const CStdString& strAlbum, const CStdString& strArtist = "");
+  explicit CMusicInfoScraper(const ADDON::ScraperPtr &scraper);
+  ~CMusicInfoScraper(void) override;
+  void FindAlbumInfo(const std::string& strAlbum, const std::string& strArtist = "");
   void LoadAlbumInfo(int iAlbum);
-  void FindArtistInfo(const CStdString& strArtist);
-  void LoadArtistInfo(int iArtist, const CStdString &strSearch);
+  void FindArtistInfo(const std::string& strArtist);
+  void LoadArtistInfo(int iArtist, const std::string &strSearch);
   bool Completed();
   bool Succeeded();
   void Cancel();
@@ -65,24 +58,24 @@ public:
    \param fallbackScraper name of scraper to use as a fallback
    \return true if we have a valid scraper (or the default is valid).
    */
-  bool CheckValidOrFallback(const CStdString &fallbackScraper);
+  bool CheckValidOrFallback(const std::string &fallbackScraper);
 protected:
   void FindAlbumInfo();
   void LoadAlbumInfo();
   void FindArtistInfo();
   void LoadArtistInfo();
-  virtual void OnStartup();
-  virtual void Process();
+  void OnStartup() override;
+  void Process() override;
   std::vector<CMusicAlbumInfo> m_vecAlbums;
   std::vector<CMusicArtistInfo> m_vecArtists;
-  CStdString m_strAlbum;
-  CStdString m_strArtist;
-  CStdString m_strSearch;
+  std::string m_strAlbum;
+  std::string m_strArtist;
+  std::string m_strSearch;
   int m_iAlbum;
   int m_iArtist;
   bool m_bSucceeded;
   bool m_bCanceled;
-  XFILE::CCurlFile m_http;
+  XFILE::CCurlFile* m_http;
   ADDON::ScraperPtr m_scraper;
 };
 

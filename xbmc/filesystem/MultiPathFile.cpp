@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "MultiPathFile.h"
@@ -25,30 +12,25 @@
 #include "URL.h"
 
 using namespace XFILE;
-using namespace std;
-using namespace XFILE;
 
 CMultiPathFile::CMultiPathFile(void)
-{
-}
+  : COverrideFile(false)
+{ }
 
-CMultiPathFile::~CMultiPathFile(void)
-{
-  Close();
-}
+CMultiPathFile::~CMultiPathFile(void) = default;
 
 bool CMultiPathFile::Open(const CURL& url)
 {
   // grab the filename off the url
-  CStdString path, fileName;
+  std::string path, fileName;
   URIUtils::Split(url.Get(), path, fileName);
-  vector<CStdString> vecPaths;
+  std::vector<std::string> vecPaths;
   if (!CMultiPathDirectory::GetPaths(path, vecPaths))
     return false;
 
   for (unsigned int i = 0; i < vecPaths.size(); i++)
   {
-    CStdString filePath = vecPaths[i];
+    std::string filePath = vecPaths[i];
     filePath = URIUtils::AddFileToFolder(filePath, fileName);
     if (m_file.Open(filePath))
       return true;
@@ -59,15 +41,15 @@ bool CMultiPathFile::Open(const CURL& url)
 bool CMultiPathFile::Exists(const CURL& url)
 {
   // grab the filename off the url
-  CStdString path, fileName;
+  std::string path, fileName;
   URIUtils::Split(url.Get(), path, fileName);
-  vector<CStdString> vecPaths;
+  std::vector<std::string> vecPaths;
   if (!CMultiPathDirectory::GetPaths(path, vecPaths))
     return false;
 
   for (unsigned int i = 0; i < vecPaths.size(); i++)
   {
-    CStdString filePath = vecPaths[i];
+    std::string filePath = vecPaths[i];
     filePath = URIUtils::AddFileToFolder(filePath, fileName);
     if (CFile::Exists(filePath))
       return true;
@@ -78,15 +60,15 @@ bool CMultiPathFile::Exists(const CURL& url)
 int CMultiPathFile::Stat(const CURL& url, struct __stat64* buffer)
 {
   // grab the filename off the url
-  CStdString path, fileName;
+  std::string path, fileName;
   URIUtils::Split(url.Get(), path, fileName);
-  vector<CStdString> vecPaths;
+  std::vector<std::string> vecPaths;
   if (!CMultiPathDirectory::GetPaths(path, vecPaths))
     return false;
 
   for (unsigned int i = 0; i < vecPaths.size(); i++)
   {
-    CStdString filePath = vecPaths[i];
+    std::string filePath = vecPaths[i];
     filePath = URIUtils::AddFileToFolder(filePath, fileName);
     int ret = CFile::Stat(filePath, buffer);
     if (ret == 0)
@@ -95,27 +77,7 @@ int CMultiPathFile::Stat(const CURL& url, struct __stat64* buffer)
   return -1;
 }
 
-unsigned int CMultiPathFile::Read(void* lpBuf, int64_t uiBufSize)
+std::string CMultiPathFile::TranslatePath(const CURL& url)
 {
-  return m_file.Read(lpBuf, uiBufSize);
-}
-
-int64_t CMultiPathFile::Seek(int64_t iFilePosition, int iWhence /*=SEEK_SET*/)
-{
-  return m_file.Seek(iFilePosition, iWhence);
-}
-
-void CMultiPathFile::Close()
-{
-  m_file.Close();
-}
-
-int64_t CMultiPathFile::GetPosition()
-{
-  return m_file.GetPosition();
-}
-
-int64_t CMultiPathFile::GetLength()
-{
-  return m_file.GetLength();
+  return url.Get();
 }

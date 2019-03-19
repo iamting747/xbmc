@@ -1,28 +1,19 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <string>
+#pragma once
+
+#include <atomic>
 #include <map>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "utils/Job.h"
 
 class CCriticalSection;
@@ -33,14 +24,14 @@ class CCriticalSection;
 /// free to add it. The main purpose currently is to provide an easy
 /// way to publish services in the different StartXXX/StopXXX methods
 /// in CApplication
-/// TODO: Make me safe for use in static initialization. CritSec is a static member :/
-///       use e.g. loki's singleton implementation to make do it properly
+//! @todo Make me safe for use in static initialization. CritSec is a static member :/
+//!       use e.g. loki's singleton implementation to make do it properly
 class CZeroconf
 {
 public:
 
   //tries to publish this service via zeroconf
-  //fcr_identifier can be used to stop this service later
+  //fcr_identifier can be used to stop or reannounce this service later
   //fcr_type is the zeroconf service type to publish (e.g. _http._tcp for webserver)
   //fcr_name is the name of the service to publish. The hostname is currently automatically appended
   //         and used for name collisions. e.g. XBMC would get published as fcr_name@Martn or, after collision fcr_name@Martn-2
@@ -50,7 +41,15 @@ public:
                       const std::string& fcr_type,
                       const std::string& fcr_name,
                       unsigned int f_port,
-                      std::map<std::string, std::string> txt);
+                      std::vector<std::pair<std::string, std::string> > txt /*= std::vector<std::pair<std::string, std::string> >()*/);
+
+  //tries to rebroadcast that service on the network without removing/readding
+  //this can be achieved by changing a fake txt record. Implementations should
+  //implement it by doing so.
+  //
+  //fcr_identifier - the identifier of the already published service which should be reannounced
+  // returns true on successful reannonuce - false if this service isn't published yet
+  bool ForceReAnnounceService(const std::string& fcr_identifier);
 
   ///removes the specified service
   ///returns false if fcr_identifier does not exist
@@ -62,9 +61,9 @@ public:
   //starts publishing
   //services that were added with PublishService(...) while Zeroconf wasn't
   //started, get published now.
-  void Start();
+  bool Start();
 
-  // unpublishs all services (but keeps them stored in this class)
+  // unpublishes all services (but keeps them stored in this class)
   // a call to Start() will republish them
   void Stop();
 
@@ -79,6 +78,8 @@ public:
   static bool   IsInstantiated() { return  smp_instance != 0; }
   // win32: process results from the bonjour daemon
   virtual void  ProcessResults() {}
+  // returns if the service is started and services are announced
+  bool IsStarted() { return m_started; }
 
 protected:
   //methods to implement for concrete implementations
@@ -87,7 +88,12 @@ protected:
                                 const std::string& fcr_type,
                                 const std::string& fcr_name,
                                 unsigned int f_port,
-                                std::map<std::string, std::string> txt) = 0;
+                                const std::vector<std::pair<std::string, std::string> >& txt) = 0;
+
+  //methods to implement for concrete implementations
+  //update this service
+  virtual bool doForceReAnnounceService(const std::string& fcr_identifier) = 0;
+
   //removes the service if published
   virtual bool doRemoveService(const std::string& fcr_ident) = 0;
 
@@ -108,26 +114,26 @@ private:
     std::string type;
     std::string name;
     unsigned int port;
-    std::map<std::string, std::string> txt;
+    std::vector<std::pair<std::string, std::string> > txt;
   };
 
   //protects data
   CCriticalSection* mp_crit_sec;
   typedef std::map<std::string, PublishInfo> tServiceMap;
   tServiceMap m_service_map;
-  bool m_started;
+  bool m_started = false;
 
   //protects singleton creation/destruction
-  static long sm_singleton_guard;
+  static std::atomic_flag sm_singleton_guard;
   static CZeroconf* smp_instance;
 
   class CPublish : public CJob
   {
   public:
     CPublish(const std::string& fcr_identifier, const PublishInfo& pubinfo);
-    CPublish(const tServiceMap& servmap);
+    explicit CPublish(const tServiceMap& servmap);
 
-    bool DoWork();
+    bool DoWork() override;
 
   private:
     tServiceMap m_servmap;

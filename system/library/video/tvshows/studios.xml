@@ -1,5 +1,7 @@
-<node order="5" type="folder">
-  <label>20388</label>
-  <path>videodb://2/5</path>
-  <icon>DefaultStudios.png</icon>
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<node order="70" type="filter">
+	<label>20388</label>
+	<icon>DefaultStudios.png</icon>
+	<content>tvshows</content>
+	<group>studios</group>
 </node>

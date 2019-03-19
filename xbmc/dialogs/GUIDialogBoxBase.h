@@ -1,48 +1,61 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <vector>
+
 #include "guilib/GUIDialog.h"
-#include "utils/Variant.h"
+#include "threads/CriticalSection.h"
+
+#define CONTROL_CHOICES_START  10
+#define CONTROL_NO_BUTTON      CONTROL_CHOICES_START
+#define CONTROL_YES_BUTTON     CONTROL_CHOICES_START + 1
+#define CONTROL_CUSTOM_BUTTON  CONTROL_CHOICES_START + 2
+#define CONTROL_PROGRESS_BAR   20
+
+#define DIALOG_MAX_LINES 3
+#define DIALOG_MAX_CHOICES 3
+
+class CVariant;
 
 class CGUIDialogBoxBase :
       public CGUIDialog
 {
 public:
-  CGUIDialogBoxBase(int id, const CStdString &xmlFile);
-  virtual ~CGUIDialogBoxBase(void);
-  virtual bool OnMessage(CGUIMessage& message);
+  CGUIDialogBoxBase(int id, const std::string &xmlFile);
+  ~CGUIDialogBoxBase(void) override;
+  bool OnMessage(CGUIMessage& message) override;
   bool IsConfirmed() const;
-  void SetLine(int iLine, const CVariant &line);
-  void SetHeading(const CVariant &heading);
+  void SetLine(unsigned int iLine, CVariant line);
+  void SetText(CVariant text);
+  void SetHeading(CVariant heading);
   void SetChoice(int iButton, const CVariant &choice);
 protected:
+  std::string GetDefaultLabel(int controlId) const;
+  virtual int GetDefaultLabelID(int controlId) const;
   /*! \brief Get a localized string from a variant
-   If the varaint is already a string we return directly, else if it's an integer we return the corresponding
+   If the variant is already a string we return directly, else if it's an integer we return the corresponding
    localized string.
    \param var the variant to localize.
    */
-  CStdString GetLocalized(const CVariant &var) const;
+  std::string GetLocalized(const CVariant &var) const;
 
-  virtual void OnInitWindow();
+  void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
+  void OnInitWindow() override;
+  void OnDeinitWindow(int nextWindowID) override;
+
   bool m_bConfirmed;
+  bool m_hasTextbox;
+
+  // actual strings
+  CCriticalSection m_section;
+  std::string m_strHeading;
+  std::string m_text;
+  std::string m_strChoices[DIALOG_MAX_CHOICES];
 };

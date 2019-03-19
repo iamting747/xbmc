@@ -1,26 +1,16 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
 #include "IDirectory.h"
+#include <memory>
+#include <string>
 
 namespace XFILE
 {
@@ -37,31 +27,55 @@ public:
   class CHints
   {
   public:
-    CHints() : flags(DIR_FLAG_DEFAULTS)
-    {
-    };
-    CStdString mask;
-    int flags;
+    std::string mask;
+    int flags = DIR_FLAG_DEFAULTS;
   };
 
-  static bool GetDirectory(const CStdString& strPath
+  static bool GetDirectory(const CURL& url
                            , CFileItemList &items
-                           , const CStdString &strMask=""
-                           , int flags=DIR_FLAG_DEFAULTS
-                           , bool allowThreads=false);
+                           , const std::string &strMask
+                           , int flags);
 
-  static bool GetDirectory(const CStdString& strPath
+  static bool GetDirectory(const CURL& url,
+                           std::shared_ptr<IDirectory> pDirectory,
+                           CFileItemList &items,
+                           const CHints &hints);
+
+  static bool GetDirectory(const CURL& url
                            , CFileItemList &items
-                           , const CHints &hints
-                           , bool allowThreads=false);
+                           , const CHints &hints);
 
-  static bool Create(const CStdString& strPath);
-  static bool Exists(const CStdString& strPath);
-  static bool Remove(const CStdString& strPath);
+  static bool Create(const CURL& url);
+  static bool Exists(const CURL& url, bool bUseCache = true);
+  static bool Remove(const CURL& url);
+  static bool RemoveRecursive(const CURL& url);
+
+  static bool GetDirectory(const std::string& strPath
+                           , CFileItemList &items
+                           , const std::string &strMask
+                           , int flags);
+
+  static bool GetDirectory(const std::string& strPath,
+                           std::shared_ptr<IDirectory> pDirectory,
+                           CFileItemList &items,
+                           const std::string &strMask,
+                           int flags);
+
+  static bool GetDirectory(const std::string& strPath
+                           , CFileItemList &items
+                           , const CHints &hints);
+
+  static bool Create(const std::string& strPath);
+  static bool Exists(const std::string& strPath, bool bUseCache = true);
+  static bool Remove(const std::string& strPath);
+  static bool RemoveRecursive(const std::string& strPath);
 
   /*! \brief Filter files that act like directories from the list, replacing them with their directory counterparts
    \param items The item list to filter
-   \param mask  The mask to apply when filtering files */
-  static void FilterFileDirectories(CFileItemList &items, const CStdString &mask);
+   \param mask  The mask to apply when filtering files
+   \param expandImages True to include disc images in file directory expansion
+  */
+  static void FilterFileDirectories(CFileItemList &items, const std::string &mask,
+                                    bool expandImages=false);
 };
 }

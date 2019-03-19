@@ -1,27 +1,14 @@
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "PipesManager.h"
 #include "threads/SingleLock.h"
-#include "Application.h"
+#include "utils/StringUtils.h"
 
 #ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
@@ -30,7 +17,7 @@
 using namespace XFILE;
 
 
-Pipe::Pipe(const CStdString &name, int nMaxSize)
+Pipe::Pipe(const std::string &name, int nMaxSize)
 {
   m_buffer.Create(nMaxSize);
   m_nRefCount = 1;
@@ -39,20 +26,18 @@ Pipe::Pipe(const CStdString &name, int nMaxSize)
   m_strPipeName = name;
   m_bOpen = true;
   m_bEof = false;
-  m_nOpenThreashold = PIPE_DEFAULT_MAX_SIZE / 2;
-  m_bReadyForRead = true; // open threashold disabled atm
+  m_nOpenThreshold = PIPE_DEFAULT_MAX_SIZE / 2;
+  m_bReadyForRead = true; // open threshold disabled atm
 }
 
-Pipe::~Pipe()
+Pipe::~Pipe() = default;
+
+void Pipe::SetOpenThreshold(int threshold)
 {
+  m_nOpenThreshold = threshold;
 }
 
-void Pipe::SetOpenThreashold(int threashold)
-{
-  m_nOpenThreashold = threashold;
-}
-
-const CStdString &Pipe::GetName() 
+const std::string &Pipe::GetName()
 {
   return m_strPipeName;
 }
@@ -105,7 +90,7 @@ void Pipe::Flush()
 int  Pipe::Read(char *buf, int nMaxSize, int nWaitMillis)
 {
   CSingleLock lock(m_lock);
-  
+
   if (!m_bOpen)
   {
     return -1;
@@ -149,10 +134,10 @@ int  Pipe::Read(char *buf, int nMaxSize, int nWaitMillis)
 
     lock.Enter();
     DecRef();
-    
+
     if (!m_bOpen)
       return -1;
-    
+
     if (bHasData)
     {
       int nToRead = min((int)m_buffer.getMaxReadSize(), nMaxSize);
@@ -160,9 +145,9 @@ int  Pipe::Read(char *buf, int nMaxSize, int nWaitMillis)
       nResult = nToRead;
     }
   }
-  
+
   CheckStatus();
-  
+
   return nResult;
 }
 
@@ -175,7 +160,7 @@ bool Pipe::Write(const char *buf, int nSize, int nWaitMillis)
   int writeSize = m_buffer.getMaxWriteSize();
   if (writeSize > nSize)
   {
-    m_buffer.WriteData((char*)buf, nSize);
+    m_buffer.WriteData(buf, nSize);
     bOk = true;
   }
   else
@@ -190,7 +175,7 @@ bool Pipe::Write(const char *buf, int nSize, int nWaitMillis)
       lock.Enter();
       if (bClear && (int)m_buffer.getMaxWriteSize() >= nSize)
       {
-        m_buffer.WriteData((char*)buf, nSize);
+        m_buffer.WriteData(buf, nSize);
         bOk = true;
         break;
       }
@@ -202,7 +187,7 @@ bool Pipe::Write(const char *buf, int nSize, int nWaitMillis)
   }
 
   CheckStatus();
-  
+
   return bOk && m_bOpen;
 }
 
@@ -211,22 +196,22 @@ void Pipe::CheckStatus()
   if (m_bEof)
   {
     m_writeEvent.Set();
-    m_readEvent.Set();  
+    m_readEvent.Set();
     return;
   }
-  
+
   if (m_buffer.getMaxWriteSize() == 0)
     m_writeEvent.Reset();
   else
     m_writeEvent.Set();
-  
+
   if (m_buffer.getMaxReadSize() == 0)
     m_readEvent.Reset();
   else
   {
-    if (!m_bReadyForRead  && (int)m_buffer.getMaxReadSize() >= m_nOpenThreashold)
+    if (!m_bReadyForRead  && (int)m_buffer.getMaxReadSize() >= m_nOpenThreshold)
       m_bReadyForRead = true;
-    m_readEvent.Set();  
+    m_readEvent.Set();
   }
 }
 
@@ -258,7 +243,7 @@ void Pipe::RemoveListener(IPipeListener *l)
     if ( (*i) == l)
       i = m_listeners.erase(i);
     else
-      i++;
+      ++i;
   }
 }
 
@@ -268,13 +253,7 @@ int	Pipe::GetAvailableRead()
   return m_buffer.getMaxReadSize();
 }
 
-PipesManager::PipesManager() : m_nGenIdHelper(1)
-{
-}
-
-PipesManager::~PipesManager()
-{
-}
+PipesManager::~PipesManager() = default;
 
 PipesManager &PipesManager::GetInstance()
 {
@@ -282,30 +261,28 @@ PipesManager &PipesManager::GetInstance()
   return instance;
 }
 
-CStdString   PipesManager::GetUniquePipeName()
+std::string   PipesManager::GetUniquePipeName()
 {
   CSingleLock lock(m_lock);
-  CStdString id;
-  id.Format("pipe://%d/",m_nGenIdHelper++);
-  return id;
+  return StringUtils::Format("pipe://%d/", m_nGenIdHelper++);
 }
 
-XFILE::Pipe *PipesManager::CreatePipe(const CStdString &name, int nMaxPipeSize)
+XFILE::Pipe *PipesManager::CreatePipe(const std::string &name, int nMaxPipeSize)
 {
-  CStdString pName = name;
-  if (pName.IsEmpty())
+  std::string pName = name;
+  if (pName.empty())
     pName = GetUniquePipeName();
-  
+
   CSingleLock lock(m_lock);
   if (m_pipes.find(pName) != m_pipes.end())
     return NULL;
-  
+
   XFILE::Pipe *p = new XFILE::Pipe(pName, nMaxPipeSize);
   m_pipes[pName] = p;
   return p;
 }
 
-XFILE::Pipe *PipesManager::OpenPipe(const CStdString &name)
+XFILE::Pipe *PipesManager::OpenPipe(const std::string &name)
 {
   CSingleLock lock(m_lock);
   if (m_pipes.find(name) == m_pipes.end())
@@ -319,17 +296,17 @@ void         PipesManager::ClosePipe(XFILE::Pipe *pipe)
   CSingleLock lock(m_lock);
   if (!pipe)
     return ;
-  
+
   pipe->DecRef();
-  pipe->Close();
   if (pipe->RefCount() == 0)
   {
+    pipe->Close();
     m_pipes.erase(pipe->GetName());
     delete pipe;
   }
 }
 
-bool         PipesManager::Exists(const CStdString &name)
+bool         PipesManager::Exists(const std::string &name)
 {
   CSingleLock lock(m_lock);
   return (m_pipes.find(name) != m_pipes.end());

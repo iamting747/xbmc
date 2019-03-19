@@ -1,29 +1,19 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/StdString.h"
+#pragma once
+
+#include <string>
 #include "utils/Variant.h"
 
 class CFileItemList;
+class CProfileManager;
+class CURL;
 
 namespace XFILE
 {
@@ -59,57 +49,83 @@ namespace XFILE
 class IDirectory
 {
 public:
-  IDirectory(void);
+  static void RegisterProfileManager(const CProfileManager &profileManager);
+  static void UnregisterProfileManager();
+
+  IDirectory();
   virtual ~IDirectory(void);
   /*!
    \brief Get the \e items of the directory \e strPath.
-   \param strPath Directory to read.
+   \param url Directory to read.
    \param items Retrieves the directory entries.
-   \return Returns \e true, if successfull.
+   \return Returns \e true, if successful.
    \sa CDirectoryFactory
    */
-  virtual bool GetDirectory(const CStdString& strPath, CFileItemList &items) = 0;
+  virtual bool GetDirectory(const CURL& url, CFileItemList &items) = 0;
+  /*!
+   \brief Retrieve the progress of the current directory fetch (if possible).
+   \return the progress as a float in the range 0..100.
+   \sa GetDirectory, CancelDirectory
+   */
+  virtual float GetProgress() const { return 0.0f; };
+  /*!
+   \brief Cancel the current directory fetch (if possible).
+   \sa GetDirectory
+   */
+  virtual void CancelDirectory() { };
   /*!
   \brief Create the directory
-  \param strPath Directory to create.
+  \param url Directory to create.
   \return Returns \e true, if directory is created or if it already exists
   \sa CDirectoryFactory
   */
-  virtual bool Create(const char* strPath) { return false; }
+  virtual bool Create(const CURL& url) { return false; }
   /*!
   \brief Check for directory existence
-  \param strPath Directory to check.
+  \param url Directory to check.
   \return Returns \e true, if directory exists
   \sa CDirectoryFactory
   */
-  virtual bool Exists(const char* strPath) { return false; }
+  virtual bool Exists(const CURL& url) { return false; }
   /*!
   \brief Removes the directory
-  \param strPath Directory to remove.
-  \return Returns \e false if not succesfull
+  \param url Directory to remove.
+  \return Returns \e false if not successful
   */
-  virtual bool Remove(const char* strPath) { return false; }
+  virtual bool Remove(const CURL& url) { return false; }
+
+  /*!
+  \brief Recursively removes the directory
+  \param url Directory to remove.
+  \return Returns \e false if not succesful
+  */
+  virtual bool RemoveRecursive(const CURL& url) { return false; }
 
   /*!
   \brief Whether this file should be listed
-  \param strFile File to test.
+  \param url File to test.
   \return Returns \e true if the file should be listed
   */
-  virtual bool IsAllowed(const CStdString& strFile) const;
+  virtual bool IsAllowed(const CURL& url) const;
+
+  /*! \brief Whether to allow all files/folders to be listed.
+   \return Returns \e true if all files/folder should be listed.
+   */
+  virtual bool AllowAll() const { return false; }
 
   /*!
   \brief How this directory should be cached
-  \param strPath Directory at hand.
+  \param url Directory at hand.
   \return Returns the cache type.
   */
-  virtual DIR_CACHE_TYPE GetCacheType(const CStdString& strPath) const { return DIR_CACHE_ONCE; };
+  virtual DIR_CACHE_TYPE GetCacheType(const CURL& url) const { return DIR_CACHE_ONCE; };
 
-  void SetMask(const CStdString& strMask);
+  void SetMask(const std::string& strMask);
   void SetFlags(int flags);
 
   /*! \brief Process additional requirements before the directory fetch is performed.
    Some directory fetches may require authentication, keyboard input etc.  The IDirectory subclass
-   should call GetKeyboardInput, SetErrorDialog or RequireAuthentication and then return false 
+   should call GetKeyboardInput, SetErrorDialog or RequireAuthentication and then return false
    from the GetDirectory method. CDirectory will then prompt for input from the user, before
    re-calling the GetDirectory method.
    \sa GetKeyboardInput, SetErrorDialog, RequireAuthentication
@@ -126,7 +142,7 @@ protected:
    \return true if keyboard input has been received. False if it hasn't.
    \sa ProcessRequirements
    */
-  bool GetKeyboardInput(const CVariant &heading, CStdString &input);
+  bool GetKeyboardInput(const CVariant &heading, std::string &input, bool hiddenInput = false);
 
   /*! \brief Show an error dialog on failure of GetDirectory call
    Call this method from the GetDirectory method to set an error message to be shown to the user
@@ -145,9 +161,11 @@ protected:
    \param url the URL to authenticate.
    \sa ProcessRequirements
    */
-  void RequireAuthentication(const CStdString &url);
+  void RequireAuthentication(const CURL& url);
 
-  CStdString m_strFileMask;  ///< Holds the file mask specified by SetMask()
+  static const CProfileManager *m_profileManager;
+
+  std::string m_strFileMask;  ///< Holds the file mask specified by SetMask()
 
   int m_flags; ///< Directory flags - see DIR_FLAG
 

@@ -1,26 +1,12 @@
-  #ifndef __EVENT_SERVER_H__
-#define __EVENT_SERVER_H__
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
 
 #include "threads/Thread.h"
 #include "Socket.h"
@@ -28,6 +14,7 @@
 #include "threads/CriticalSection.h"
 #include "threads/SingleLock.h"
 
+#include <atomic>
 #include <map>
 #include <queue>
 #include <vector>
@@ -43,10 +30,10 @@ namespace EVENTSERVER
   public:
     static void RemoveInstance();
     static CEventServer* GetInstance();
-    virtual ~CEventServer() {}
+    ~CEventServer() override = default;
 
     // IRunnable entry point for thread
-    virtual void  Process();
+    void  Process() override;
 
     bool Running()
     {
@@ -64,7 +51,7 @@ namespace EVENTSERVER
     void StopServer(bool bWait);
 
     // get events
-    unsigned short GetButtonCode(std::string& strMapName, bool& isAxis, float& amount);
+    unsigned int GetButtonCode(std::string& strMapName, bool& isAxis, float& amount, bool &isJoystick);
     bool ExecuteNextAction();
     bool GetMousePos(float &x, float &y);
     int GetNumberOfClients();
@@ -84,11 +71,10 @@ namespace EVENTSERVER
     int              m_iListenTimeout;
     int              m_iMaxClients;
     unsigned char*   m_pPacketBuffer;
-    bool             m_bRunning;
+    std::atomic<bool>  m_bRunning;
     CCriticalSection m_critSection;
     bool             m_bRefreshSettings;
   };
 
 }
 
-#endif // __EVENT_SERVER_H__

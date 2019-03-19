@@ -1,22 +1,9 @@
 /*
- *      Copyright (C) 2005-2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #pragma once
@@ -38,28 +25,36 @@ namespace XbmcThreads
   /**
    * DO NOT compare the results from SystemClockMillis() to an expected end time
    *  that was calculated by adding a number of milliseconds to some start time.
-   *  The reason is becuse the SystemClockMillis could wrap. Instead use this
-   *  class which uses differences (which are safe accross a wrap).
+   *  The reason is because the SystemClockMillis could wrap. Instead use this
+   *  class which uses differences (which are safe across a wrap).
    */
   class EndTime
   {
-    unsigned int startTime;
-    unsigned int totalWaitTime;
+    unsigned int startTime = 0;
+    unsigned int totalWaitTime = 0;
   public:
-    inline EndTime() : startTime(0), totalWaitTime(0) {}
-    inline EndTime(unsigned int millisecondsIntoTheFuture) : startTime(SystemClockMillis()), totalWaitTime(millisecondsIntoTheFuture) {}
+    static const unsigned int InfiniteValue;
+    inline EndTime() = default;
+    inline explicit EndTime(unsigned int millisecondsIntoTheFuture) : startTime(SystemClockMillis()), totalWaitTime(millisecondsIntoTheFuture) {}
 
     inline void Set(unsigned int millisecondsIntoTheFuture) { startTime = SystemClockMillis(); totalWaitTime = millisecondsIntoTheFuture; }
 
-    inline bool IsTimePast() { return totalWaitTime == 0 ? true : (SystemClockMillis() - startTime) >= totalWaitTime; }
+    inline bool IsTimePast() const { return totalWaitTime == InfiniteValue ? false : (totalWaitTime == 0 ? true : (SystemClockMillis() - startTime) >= totalWaitTime); }
 
-    inline unsigned int MillisLeft()
+    inline unsigned int MillisLeft() const
     {
+      if (totalWaitTime == InfiniteValue)
+        return InfiniteValue;
+      if (totalWaitTime == 0)
+        return 0;
       unsigned int timeWaitedAlready = (SystemClockMillis() - startTime);
       return (timeWaitedAlready >= totalWaitTime) ? 0 : (totalWaitTime - timeWaitedAlready);
     }
 
     inline void SetExpired() { totalWaitTime = 0; }
-    inline void SetInfinite() { totalWaitTime = std::numeric_limits<unsigned int>::max(); }
+    inline void SetInfinite() { totalWaitTime = InfiniteValue; }
+    inline bool IsInfinite(void) const { return (totalWaitTime == InfiniteValue); }
+    inline unsigned int GetInitialTimeoutValue(void) const { return totalWaitTime; }
+    inline unsigned int GetStartTime(void) const { return startTime; }
   };
 }

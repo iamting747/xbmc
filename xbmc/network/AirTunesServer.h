@@ -1,105 +1,97 @@
-#pragma once
 /*
  * Many concepts and protocol specification in this code are taken from
  * the Boxee project. http://www.boxee.tv
  *
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2011-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
-#include "system.h"
 
-#ifdef HAS_AIRTUNES
+#pragma once
 
-#if defined(TARGET_WINDOWS)
 #include "DllLibShairplay.h"
-#else
-#include "DllLibShairport.h"
-#endif
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string>
 #include <vector>
+#include <list>
 #include "threads/Thread.h"
 #include "threads/CriticalSection.h"
-#include "utils/HttpParser.h"
-#include "utils/StdString.h"
 #include "filesystem/PipeFile.h"
+#include "interfaces/IAnnouncer.h"
+#include "interfaces/IActionListener.h"
 
-class DllLibShairport;
+class CDACP;
+class CVariant;
 
-
-class CAirTunesServer : public CThread
+class CAirTunesServer : public ANNOUNCEMENT::IAnnouncer, public IActionListener, public CThread
 {
 public:
-  static bool StartServer(int port, bool nonlocal, bool usePassword, const CStdString &password="");
+  // ANNOUNCEMENT::IAnnouncer
+  void Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data) override;
+
+  void RegisterActionListener(bool doRegister);
+  static void EnableActionProcessing(bool enable);
+  // IACtionListener
+  bool OnAction(const CAction &action) override;
+
+  //CThread
+  void Process() override;
+
+  static bool StartServer(int port, bool nonlocal, bool usePassword, const std::string &password="");
   static void StopServer(bool bWait);
+  static bool IsRunning();
+  bool IsRAOPRunningInternal();
   static void SetMetadataFromBuffer(const char *buffer, unsigned int size);
   static void SetCoverArtFromBuffer(const char *buffer, unsigned int size);
-
-protected:
-  void Process();
+  static void SetupRemoteControl();
+  static void FreeDACPRemote();
 
 private:
   CAirTunesServer(int port, bool nonlocal);
-  ~CAirTunesServer();
-  bool Initialize(const CStdString &password);
+  ~CAirTunesServer() override;
+  bool Initialize(const std::string &password);
   void Deinitialize();
+  static void RefreshCoverArt(const char *outputFilename = NULL);
+  static void RefreshMetadata();
+  static void ResetMetadata();
+  static void InformPlayerAboutPlayTimes();
 
   int m_port;
-#if defined(TARGET_WINDOWS)
   static DllLibShairplay *m_pLibShairplay;//the lib
   raop_t *m_pRaop;
   XFILE::CPipeFile *m_pPipe;
-#else
-  static DllLibShairport *m_pLibShairport;//the lib
-#endif
   static CAirTunesServer *ServerInstance;
-  static CStdString m_macAddress;
+  static std::string m_macAddress;
+  static CCriticalSection m_metadataLock;
+  static std::string m_metadata[3];//0 - album, 1 - title, 2 - artist
+  static bool m_streamStarted;
+  static CCriticalSection m_dacpLock;
+  static CDACP *m_pDACP;
+  static std::string m_dacp_id;
+  static std::string m_active_remote_header;
+  static CCriticalSection m_actionQueueLock;
+  static std::list<CAction> m_actionQueue;
+  static CEvent m_processActions;
+  static int m_sampleRate;
+  static unsigned int m_cachedStartTime;
+  static unsigned int m_cachedEndTime;
+  static unsigned int m_cachedCurrentTime;
 
   class AudioOutputFunctions
   {
     public:
-#if defined(TARGET_WINDOWS)
       static void* audio_init(void *cls, int bits, int channels, int samplerate);
       static void  audio_set_volume(void *cls, void *session, float volume);
 	    static void  audio_set_metadata(void *cls, void *session, const void *buffer, int buflen);
 	    static void  audio_set_coverart(void *cls, void *session, const void *buffer, int buflen);
       static void  audio_process(void *cls, void *session, const void *buffer, int buflen);
-      static void  audio_flush(void *cls, void *session);
       static void  audio_destroy(void *cls, void *session);
-#else
-      static void ao_initialize(void);
-      static int ao_play(ao_device *device, char *output_samples, uint32_t num_bytes);
-      static int ao_default_driver_id(void);
-      static ao_device* ao_open_live( int driver_id, ao_sample_format *format,
-                                      ao_option *option);
-      static int ao_close(ao_device *device);
-      /* -- Device Setup/Playback/Teardown -- */
-      static int ao_append_option(ao_option **options, const char *key, const char *value);
-      static void ao_free_options(ao_option *options);
-      static char* ao_get_option(ao_option *options, const char* key);
-      static void ao_set_metadata(const char *buffer, unsigned int size);
-      static void ao_set_metadata_coverart(const char *buffer, unsigned int size);      
-#endif
+      static void  audio_remote_control_id(void *cls, const char *identifier, const char *active_remote_header);
+      static void  audio_set_progress(void *cls, void *session, unsigned int start, unsigned int curr, unsigned int end);
     };
 };
-
-#endif

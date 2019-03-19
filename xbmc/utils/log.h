@@ -1,77 +1,105 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <stdio.h>
+#pragma once
+
 #include <string>
+#include <utility>
 
 #include "commons/ilog.h"
-#include "threads/CriticalSection.h"
-#include "utils/GlobalsHandling.h"
+#include "utils/StringUtils.h"
 
-#ifdef __GNUC__
-#define ATTRIB_LOG_FORMAT __attribute__((format(printf,2,3)))
-#else
-#define ATTRIB_LOG_FORMAT
-#endif
 
 class CLog
 {
 public:
-
-  class CLogGlobals
-  {
-  public:
-    CLogGlobals() : m_file(NULL), m_repeatCount(0), m_repeatLogLevel(-1), m_logLevel(LOG_LEVEL_DEBUG) {}
-    FILE*       m_file;
-    int         m_repeatCount;
-    int         m_repeatLogLevel;
-    std::string m_repeatLine;
-    int         m_logLevel;
-    CCriticalSection critSec;
-  };
-
   CLog();
-  virtual ~CLog(void);
+  ~CLog();
   static void Close();
-  static void Log(int loglevel, const char *format, ... ) ATTRIB_LOG_FORMAT;
+
+  static void Log(int loglevel, const char* format)
+  {
+    if (IsLogLevelLogged(loglevel))
+      LogString(loglevel, format);
+  }
+
+  template<typename... Args>
+  static void Log(int loglevel, const char* format, Args&&... args)
+  {
+    if (IsLogLevelLogged(loglevel))
+      LogString(loglevel, StringUtils::Format(format, std::forward<Args>(args)...));
+  }
+
+  static void Log(int loglevel, int component, const char* format)
+  {
+    if (IsLogLevelLogged(loglevel))
+      LogString(loglevel, component, format);
+  }
+
+  template<typename... Args>
+  static void Log(int loglevel, int component, const char* format, Args&&... args)
+  {
+    // We defer component checking to LogString to avoid having to drag in advancedsettings
+    // everywhere we want to log anything
+    if (IsLogLevelLogged(loglevel))
+      LogString(loglevel, component, StringUtils::Format(format, std::forward<Args>(args)...));
+  }
+
+  static void LogFunction(int loglevel, std::string functionName, const char* format)
+  {
+    if (IsLogLevelLogged(loglevel))
+      LogString(loglevel, functionName + ": " + format);
+  }
+
+  template<typename... Args>
+  static void LogFunction(int loglevel,
+                          std::string functionName,
+                          const char* format,
+                          Args&&... args)
+  {
+    if (IsLogLevelLogged(loglevel))
+    {
+      functionName.append(": ");
+      LogString(loglevel, functionName + StringUtils::Format(format, std::forward<Args>(args)...));
+    }
+  }
+
+  static void LogFunction(int loglevel, std::string functionName, int component, const char* format)
+  {
+    if (IsLogLevelLogged(loglevel))
+      LogString(loglevel, component, functionName + ": " + format);
+  }
+
+  template<typename... Args>
+  static void LogFunction(
+      int loglevel, std::string functionName, int component, const char* format, Args&&... args)
+  {
+    // We defer component checking to LogString to avoid having to drag in advancedsettings
+    // everywhere we want to log anything
+    if (IsLogLevelLogged(loglevel))
+    {
+      functionName.append(": ");
+      LogString(loglevel, component,
+                functionName + StringUtils::Format(format, std::forward<Args>(args)...));
+    }
+  }
+#define LogF(loglevel, ...) LogFunction((loglevel), __FUNCTION__, ##__VA_ARGS__)
+#define LogFC(loglevel, component, ...) LogFunction((loglevel), __FUNCTION__, (component), ##__VA_ARGS__)
   static void MemDump(char *pData, int length);
-  static bool Init(const char* path);
+  static bool Init(const std::string& path);
+  static void PrintDebugString(const std::string& line); // universal interface for printing debug strings
   static void SetLogLevel(int level);
   static int  GetLogLevel();
-private:
-  static void OutputDebugString(const std::string& line);
+  static void SetExtraLogLevels(int level);
+  static bool IsLogLevelLogged(int loglevel);
+
+protected:
+  static void LogString(int logLevel, std::string&& logString);
+  static void LogString(int logLevel, int component, std::string&& logString);
+  static bool WriteLogString(int logLevel, const std::string& logString);
 };
-
-#undef ATTRIB_LOG_FORMAT
-
-namespace XbmcUtils
-{
-  class LogImplementation : public XbmcCommons::ILogger
-  {
-  public:
-    virtual ~LogImplementation() {}
-    inline virtual void log(int logLevel, const char* message) { CLog::Log(logLevel,"%s",message); }
-  };
-}
-
-XBMC_GLOBAL_REF(CLog::CLogGlobals,g_log_globals);

@@ -1,25 +1,13 @@
 /*
- *      Copyright (C) 2005-2009 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "Crc32.h"
-
+#include "utils/StringUtils.h"
 
 uint32_t  crc_tab[256] =
 {
@@ -105,15 +93,17 @@ void Crc32::Compute(const char* buffer, size_t count)
       m_crc = (m_crc << 8) ^ crc_tab[((m_crc >> 24) ^ *buffer++) & 0xFF];
 }
 
-void Crc32::Compute(const CStdString& strValue)
+uint32_t Crc32::Compute(const std::string& strValue)
 {
-  Compute(strValue.c_str(), strValue.size());
+  Crc32 crc;
+  crc.Compute(strValue.c_str(), strValue.size());
+  return crc;
 }
 
-void Crc32::ComputeFromLowerCase(const CStdString& strValue)
+uint32_t Crc32::ComputeFromLowerCase(const std::string& strValue)
 {
-  CStdString strLower = strValue;
-  strLower.MakeLower();
-  Compute(strLower.c_str(), strLower.size());
+  std::string strLower = strValue;
+  StringUtils::ToLower(strLower);
+  return Compute(strLower.c_str());
 }
 

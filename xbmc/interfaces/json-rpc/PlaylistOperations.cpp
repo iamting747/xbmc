@@ -1,51 +1,38 @@
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "PlaylistOperations.h"
-#include "playlists/PlayList.h"
 #include "PlayListPlayer.h"
-#include "Util.h"
 #include "guilib/GUIWindowManager.h"
+#include "input/Key.h"
 #include "GUIUserMessages.h"
-#include "Application.h"
+#include "messaging/ApplicationMessenger.h"
 #include "pictures/GUIWindowSlideShow.h"
 #include "pictures/PictureInfoTag.h"
+#include "utils/Variant.h"
 
 using namespace JSONRPC;
 using namespace PLAYLIST;
-using namespace std;
+using namespace KODI::MESSAGING;
 
-JSONRPC_STATUS CPlaylistOperations::GetPlaylists(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::GetPlaylists(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   result = CVariant(CVariant::VariantTypeArray);
   CVariant playlist = CVariant(CVariant::VariantTypeObject);
-  
+
   playlist["playlistid"] = PLAYLIST_MUSIC;
   playlist["type"] = "audio";
   result.append(playlist);
-  
+
   playlist["playlistid"] = PLAYLIST_VIDEO;
   playlist["type"] = "video";
   result.append(playlist);
-  
+
   playlist["playlistid"] = PLAYLIST_PICTURE;
   playlist["type"] = "picture";
   result.append(playlist);
@@ -53,12 +40,12 @@ JSONRPC_STATUS CPlaylistOperations::GetPlaylists(const CStdString &method, ITran
   return OK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::GetProperties(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::GetProperties(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   int playlist = GetPlaylist(parameterObject["playlistid"]);
   for (unsigned int index = 0; index < parameterObject["properties"].size(); index++)
   {
-    CStdString propertyName = parameterObject["properties"][index].asString();
+    std::string propertyName = parameterObject["properties"][index].asString();
     CVariant property;
     JSONRPC_STATUS ret;
     if ((ret = GetPropertyValue(playlist, propertyName, property)) != OK)
@@ -70,7 +57,7 @@ JSONRPC_STATUS CPlaylistOperations::GetProperties(const CStdString &method, ITra
   return OK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::GetItems(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::GetItems(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   CFileItemList list;
   int playlist = GetPlaylist(parameterObject["playlistid"]);
@@ -80,11 +67,11 @@ JSONRPC_STATUS CPlaylistOperations::GetItems(const CStdString &method, ITranspor
   {
     case PLAYLIST_VIDEO:
     case PLAYLIST_MUSIC:
-      g_application.getApplicationMessenger().PlayListPlayerGetItems(playlist, list);
+      CApplicationMessenger::GetInstance().SendMsg(TMSG_PLAYLISTPLAYER_GET_ITEMS, playlist, -1, static_cast<void*>(&list));
       break;
 
     case PLAYLIST_PICTURE:
-      slideshow = (CGUIWindowSlideShow*)g_windowManager.GetWindow(WINDOW_SLIDESHOW);
+      slideshow = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowSlideShow>(WINDOW_SLIDESHOW);
       if (slideshow)
         slideshow->GetSlideShowContents(list);
       break;
@@ -95,40 +82,47 @@ JSONRPC_STATUS CPlaylistOperations::GetItems(const CStdString &method, ITranspor
   return OK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Add(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+bool CPlaylistOperations::CheckMediaParameter(int playlist, const CVariant &itemObject)
+{
+  if (itemObject.isMember("media") && itemObject["media"].asString().compare("files") != 0)
+  {
+    if (playlist == PLAYLIST_VIDEO && itemObject["media"].asString().compare("video") != 0)
+      return false;
+    if (playlist == PLAYLIST_MUSIC && itemObject["media"].asString().compare("music") != 0)
+      return false;
+    if (playlist == PLAYLIST_PICTURE && itemObject["media"].asString().compare("video") != 0 && itemObject["media"].asString().compare("pictures") != 0)
+      return false;
+  }
+  return true;
+}
+
+JSONRPC_STATUS CPlaylistOperations::Add(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   int playlist = GetPlaylist(parameterObject["playlistid"]);
-  CFileItemList list;
-  CVariant params = parameterObject;
 
   CGUIWindowSlideShow *slideshow = NULL;
+  if (playlist == PLAYLIST_PICTURE)
+  {
+    slideshow = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowSlideShow>(WINDOW_SLIDESHOW);
+    if (slideshow == NULL)
+      return FailedToExecute;
+  }
+
+  CFileItemList list;
+  if (!HandleItemsParameter(playlist, parameterObject["item"], list))
+    return InvalidParams;
+
   switch (playlist)
   {
     case PLAYLIST_VIDEO:
     case PLAYLIST_MUSIC:
-      if (playlist == PLAYLIST_VIDEO)
-        params["item"]["media"] = "video";
-      else if (playlist == PLAYLIST_MUSIC)
-        params["item"]["media"] = "music";
-      else
-        return FailedToExecute;
-
-      if (!FillFileItemList(params["item"], list))
-        return InvalidParams;
-
-      g_application.getApplicationMessenger().PlayListPlayerAdd(playlist, list);
-
+    {
+      auto tmpList = new CFileItemList();
+      tmpList->Copy(list);
+      CApplicationMessenger::GetInstance().PostMsg(TMSG_PLAYLISTPLAYER_ADD, playlist, -1, static_cast<void*>(tmpList));
       break;
-
+    }
     case PLAYLIST_PICTURE:
-      slideshow = (CGUIWindowSlideShow*)g_windowManager.GetWindow(WINDOW_SLIDESHOW);
-      if (!slideshow)
-        return FailedToExecute;
-      
-      params["item"]["media"] = "pictures";
-      if (!FillFileItemList(params["item"], list))
-        return InvalidParams;
-
       for (int index = 0; index < list.Size(); index++)
       {
         CPictureInfoTag picture = CPictureInfoTag();
@@ -139,53 +133,48 @@ JSONRPC_STATUS CPlaylistOperations::Add(const CStdString &method, ITransportLaye
         slideshow->Add(list[index].get());
       }
       break;
+
+    default:
+      return InvalidParams;
   }
-  
-  NotifyAll();
+
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Insert(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Insert(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   int playlist = GetPlaylist(parameterObject["playlistid"]);
   if (playlist == PLAYLIST_PICTURE)
     return FailedToExecute;
 
   CFileItemList list;
-  CVariant params = parameterObject;
-  if (playlist == PLAYLIST_VIDEO)
-    params["item"]["media"] = "video";
-  else if (playlist == PLAYLIST_MUSIC)
-    params["item"]["media"] = "music";
-  else
-    return FailedToExecute;
-
-  if (!FillFileItemList(params["item"], list))
+  if (!HandleItemsParameter(playlist, parameterObject["item"], list))
     return InvalidParams;
 
-  g_application.getApplicationMessenger().PlayListPlayerInsert(GetPlaylist(parameterObject["playlistid"]), list, (int)parameterObject["position"].asInteger());
+  auto tmpList = new CFileItemList();
+  tmpList->Copy(list);
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_PLAYLISTPLAYER_INSERT, GetPlaylist(parameterObject["playlistid"]),
+    static_cast<int>(parameterObject["position"].asInteger()), static_cast<void*>(tmpList));
 
-  NotifyAll();
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Remove(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Remove(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   int playlist = GetPlaylist(parameterObject["playlistid"]);
   if (playlist == PLAYLIST_PICTURE)
     return FailedToExecute;
-  
+
   int position = (int)parameterObject["position"].asInteger();
-  if (g_playlistPlayer.GetCurrentPlaylist() == playlist && g_playlistPlayer.GetCurrentSong() == position)
+  if (CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist() == playlist && CServiceBroker::GetPlaylistPlayer().GetCurrentSong() == position)
     return InvalidParams;
 
-  g_application.getApplicationMessenger().PlayListPlayerRemove(playlist, position);
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_PLAYLISTPLAYER_REMOVE, playlist, position);
 
-  NotifyAll();
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Clear(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Clear(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   int playlist = GetPlaylist(parameterObject["playlistid"]);
   CGUIWindowSlideShow *slideshow = NULL;
@@ -193,31 +182,32 @@ JSONRPC_STATUS CPlaylistOperations::Clear(const CStdString &method, ITransportLa
   {
     case PLAYLIST_MUSIC:
     case PLAYLIST_VIDEO:
-      g_application.getApplicationMessenger().PlayListPlayerClear(playlist);
+      CApplicationMessenger::GetInstance().PostMsg(TMSG_PLAYLISTPLAYER_CLEAR, playlist);
       break;
 
     case PLAYLIST_PICTURE:
-       slideshow = (CGUIWindowSlideShow*)g_windowManager.GetWindow(WINDOW_SLIDESHOW);
-       if (!slideshow)
-         return FailedToExecute;
-       g_application.getApplicationMessenger().SendAction(CAction(ACTION_STOP), WINDOW_SLIDESHOW);
-       slideshow->Reset();
-       break;
+      slideshow = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowSlideShow>(WINDOW_SLIDESHOW);
+      if (!slideshow)
+        return FailedToExecute;
+      CApplicationMessenger::GetInstance().PostMsg(TMSG_GUI_ACTION, WINDOW_SLIDESHOW, -1, static_cast<void*>(new CAction(ACTION_STOP)));
+      slideshow->Reset();
+      break;
   }
 
-  NotifyAll();
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Swap(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Swap(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   int playlist = GetPlaylist(parameterObject["playlistid"]);
   if (playlist == PLAYLIST_PICTURE)
     return FailedToExecute;
 
-  g_application.getApplicationMessenger().PlayListPlayerSwap(playlist, (int)parameterObject["position1"].asInteger(), (int)parameterObject["position2"].asInteger());
+  auto tmpVec = new std::vector<int>();
+  tmpVec->push_back(static_cast<int>(parameterObject["position1"].asInteger()));
+  tmpVec->push_back(static_cast<int>(parameterObject["position2"].asInteger()));
+  CApplicationMessenger::GetInstance().PostMsg(TMSG_PLAYLISTPLAYER_SWAP, playlist, -1, static_cast<void*>(tmpVec));
 
-  NotifyAll();
   return ACK;
 }
 
@@ -230,26 +220,20 @@ int CPlaylistOperations::GetPlaylist(const CVariant &playlist)
   return PLAYLIST_NONE;
 }
 
-void CPlaylistOperations::NotifyAll()
+JSONRPC_STATUS CPlaylistOperations::GetPropertyValue(int playlist, const std::string &property, CVariant &result)
 {
-  CGUIMessage msg(GUI_MSG_PLAYLIST_CHANGED, 0, 0);
-  g_windowManager.SendThreadMessage(msg);
-}
-
-JSONRPC_STATUS CPlaylistOperations::GetPropertyValue(int playlist, const CStdString &property, CVariant &result)
-{
-  if (property.Equals("type"))
+  if (property == "type")
   {
     switch (playlist)
     {
       case PLAYLIST_MUSIC:
         result = "audio";
         break;
-        
+
       case PLAYLIST_VIDEO:
         result = "video";
         break;
-        
+
       case PLAYLIST_PICTURE:
         result = "pictures";
         break;
@@ -259,7 +243,7 @@ JSONRPC_STATUS CPlaylistOperations::GetPropertyValue(int playlist, const CStdStr
         break;
     }
   }
-  else if (property.Equals("size"))
+  else if (property == "size")
   {
     CFileItemList list;
     CGUIWindowSlideShow *slideshow = NULL;
@@ -267,12 +251,12 @@ JSONRPC_STATUS CPlaylistOperations::GetPropertyValue(int playlist, const CStdStr
     {
       case PLAYLIST_MUSIC:
       case PLAYLIST_VIDEO:
-        g_application.getApplicationMessenger().PlayListPlayerGetItems(playlist, list);
+        CApplicationMessenger::GetInstance().SendMsg(TMSG_PLAYLISTPLAYER_GET_ITEMS, playlist, -1, static_cast<void*>(&list));
         result = list.Size();
         break;
 
       case PLAYLIST_PICTURE:
-        slideshow = (CGUIWindowSlideShow*)g_windowManager.GetWindow(WINDOW_SLIDESHOW);
+        slideshow = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowSlideShow>(WINDOW_SLIDESHOW);
         if (slideshow)
           result = slideshow->NumSlides();
         else
@@ -288,4 +272,37 @@ JSONRPC_STATUS CPlaylistOperations::GetPropertyValue(int playlist, const CStdStr
     return InvalidParams;
 
   return OK;
+}
+
+bool CPlaylistOperations::HandleItemsParameter(int playlistid, const CVariant &itemParam, CFileItemList &items)
+{
+  std::vector<CVariant> vecItems;
+  if (itemParam.isArray())
+    vecItems.assign(itemParam.begin_array(), itemParam.end_array());
+  else
+    vecItems.push_back(itemParam);
+
+  bool success = false;
+  for (std::vector<CVariant>::iterator itemIt = vecItems.begin(); itemIt != vecItems.end(); ++itemIt)
+  {
+    if (!CheckMediaParameter(playlistid, *itemIt))
+      continue;
+
+    switch (playlistid)
+    {
+    case PLAYLIST_VIDEO:
+      (*itemIt)["media"] = "video";
+      break;
+    case PLAYLIST_MUSIC:
+      (*itemIt)["media"] = "music";
+      break;
+    case PLAYLIST_PICTURE:
+      (*itemIt)["media"] = "pictures";
+      break;
+    }
+
+    success |= FillFileItemList(*itemIt, items);
+  }
+
+  return success;
 }

@@ -1,109 +1,25 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "CharsetConverter.h"
 #include "HTMLUtil.h"
+#include "utils/StringUtils.h"
+#include <wctype.h>
 
-using namespace std;
 using namespace HTML;
 
+CHTMLUtil::CHTMLUtil(void) = default;
 
-CHTMLUtil::CHTMLUtil(void)
-{}
+CHTMLUtil::~CHTMLUtil(void) = default;
 
-CHTMLUtil::~CHTMLUtil(void)
-{}
-
-int CHTMLUtil::FindTag(const CStdString& strHTML, const CStdString& strTag, CStdString& strtagFound, int iPos) const
-{
-  CStdString strHTMLLow = strHTML;
-  CStdString strTagLow = strTag;
-  strHTMLLow.ToLower();
-  strTagLow.ToLower();
-  strtagFound = "";
-  int iStart = strHTMLLow.Find(strTag, iPos);
-  if (iStart < 0) return -1;
-  int iEnd = strHTMLLow.Find(">", iStart);
-  if (iEnd < 0) iEnd = (int)strHTMLLow.size();
-  strtagFound = strHTMLLow.Mid(iStart, (iEnd + 1) - iStart);
-  return iStart;
-}
-
-int CHTMLUtil::FindClosingTag(const CStdString& strHTML, const CStdString& strTag, CStdString& strtagFound, int iPos) const
-{
-  CStdString strHTMLLow = strHTML;
-  CStdString strTagLow = strTag;
-  strHTMLLow.ToLower();
-  strTagLow.ToLower();
-  strtagFound = "";
-  int iStart = strHTMLLow.Find("</" + strTag, iPos);
-  if (iStart < 0) return -1;
-  int iOpenStart = strHTMLLow.Find("<" + strTag, iPos);
-  while (iOpenStart < iStart && iOpenStart != -1)
-  {
-    iStart = strHTMLLow.Find("</" + strTag, iStart + 1);
-    iOpenStart = strHTMLLow.Find("<" + strTag, iOpenStart + 1);
-  }
-
-  int iEnd = strHTMLLow.Find(">", iStart);
-  if (iEnd < 0) iEnd = (int)strHTMLLow.size();
-  strtagFound = strHTMLLow.Mid(iStart, (iEnd + 1) - iStart);
-  return iStart;
-}
-
-void CHTMLUtil::getValueOfTag(const CStdString& strTagAndValue, CStdString& strValue)
-{
-  // strTagAndValue contains:
-  // like <a href=blablabla.....>value</a>
-  strValue = strTagAndValue;
-  int iStart = strTagAndValue.Find(">");
-  int iEnd = strTagAndValue.Find("<", iStart + 1);
-  if (iStart >= 0 && iEnd >= 0)
-  {
-    iStart++;
-    strValue = strTagAndValue.Mid(iStart, iEnd - iStart);
-  }
-}
-
-void CHTMLUtil::getAttributeOfTag(const CStdString& strTagAndValue, const CStdString& strTag, CStdString& strValue)
-{
-  // strTagAndValue contains:
-  // like <a href=""value".....
-  strValue = strTagAndValue;
-  int iStart = strTagAndValue.Find(strTag);
-  if (iStart < 0) return ;
-  iStart += (int)strTag.size();
-  while (strTagAndValue[iStart + 1] == 0x20 || strTagAndValue[iStart + 1] == 0x27 || strTagAndValue[iStart + 1] == 34) iStart++;
-  int iEnd = iStart + 1;
-  while (strTagAndValue[iEnd] != 0x27 && strTagAndValue[iEnd] != 0x20 && strTagAndValue[iEnd] != 34 && strTagAndValue[iEnd] != '>') iEnd++;
-  if (iStart >= 0 && iEnd >= 0)
-  {
-    strValue = strTagAndValue.Mid(iStart, iEnd - iStart);
-  }
-}
-
-void CHTMLUtil::RemoveTags(CStdString& strHTML)
+void CHTMLUtil::RemoveTags(std::string& strHTML)
 {
   int iNested = 0;
-  CStdString strReturn = "";
+  std::string strReturn = "";
   for (int i = 0; i < (int) strHTML.size(); ++i)
   {
     if (strHTML[i] == '<') iNested++;
@@ -263,48 +179,49 @@ static const HTMLMapping mappings[] =
    {L"&zwnj;",    0x200C},
    {NULL,         L'\0'}};
 
-void CHTMLUtil::ConvertHTMLToW(const CStdStringW& strHTML, CStdStringW& strStripped)
+void CHTMLUtil::ConvertHTMLToW(const std::wstring& strHTML, std::wstring& strStripped)
 {
-  if (strHTML.size() == 0)
+  //! @todo STRING_CLEANUP
+  if (strHTML.empty())
   {
-    strStripped.Empty();
+    strStripped.clear();
     return ;
   }
-  int iPos = 0;
+  size_t iPos = 0;
   strStripped = strHTML;
   while (mappings[iPos].html)
   {
-    strStripped.Replace(mappings[iPos].html,CStdStringW(1, mappings[iPos].w));
+    StringUtils::Replace(strStripped, mappings[iPos].html,std::wstring(1, mappings[iPos].w));
     iPos++;
   }
 
-  iPos = strStripped.Find(L"&#");
-  while (iPos > 0 && iPos < (int)strStripped.size()-4)
+  iPos = strStripped.find(L"&#");
+  while (iPos > 0 && iPos < strStripped.size() - 4)
   {
-    int iStart = iPos + 1;
+    size_t iStart = iPos + 1;
     iPos += 2;
-    CStdStringW num;
+    std::wstring num;
     int base = 10;
-    if (strStripped[iPos+1] == L'x')
+    if (strStripped[iPos] == L'x')
     {
       base = 16;
       iPos++;
     }
 
-    int i=iPos;
-    while ( iPos < (int)strStripped.size() && 
-           (base==16?iswxdigit(strStripped[iPos]):iswdigit(strStripped[iPos])))
-      iPos++; 
+    size_t i = iPos;
+    while (iPos < strStripped.size() &&
+          (base == 16 ? iswxdigit(strStripped[iPos]) : iswdigit(strStripped[iPos])))
+      iPos++;
 
-    num = strStripped.Mid(i,iPos-i);
+    num = strStripped.substr(i, iPos-i);
     wchar_t val = (wchar_t)wcstol(num.c_str(),NULL,base);
     if (base == 10)
-      num.Format(L"&#%ls;",num.c_str());
+      num = StringUtils::Format(L"&#%ls;", num.c_str());
     else
-      num.Format(L"&#x%ls;",num.c_str());
+      num = StringUtils::Format(L"&#x%ls;", num.c_str());
 
-    strStripped.Replace(num,CStdStringW(1,val));
-    iPos = strStripped.Find(L"&#", iStart);
+    StringUtils::Replace(strStripped, num,std::wstring(1,val));
+    iPos = strStripped.find(L"&#", iStart);
   }
 }
 

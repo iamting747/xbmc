@@ -1,5 +1,7 @@
-<node order="2" type="folder">
-  <label>369</label>
-  <path>videodb://1/2</path>
-  <icon>DefaultMovieTitle.png</icon>
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<node order="30" type="filter">
+	<label>10024</label>
+	<icon>DefaultMovieTitle.png</icon>
+	<content>movies</content>
+	<order direction="ascending">sorttitle</order>
 </node>

@@ -1,30 +1,19 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIPanelContainer.h"
-#include "GUIListItem.h"
-#include "GUIInfoManager.h"
-#include "Key.h"
+#include "GUIListItemLayout.h"
+#include "GUIMessage.h"
+#include "guilib/guiinfo/GUIInfoLabels.h"
+#include "input/Key.h"
+#include "utils/StringUtils.h"
 
-using namespace std;
+#include <cassert>
 
 CGUIPanelContainer::CGUIPanelContainer(int parentID, int controlID, float posX, float posY, float width, float height, ORIENTATION orientation, const CScroller& scroller, int preloadItems)
     : CGUIBaseContainer(parentID, controlID, posX, posY, width, height, orientation, scroller, preloadItems)
@@ -34,9 +23,7 @@ CGUIPanelContainer::CGUIPanelContainer(int parentID, int controlID, float posX, 
   m_itemsPerRow = 1;
 }
 
-CGUIPanelContainer::~CGUIPanelContainer(void)
-{
-}
+CGUIPanelContainer::~CGUIPanelContainer(void) = default;
 
 void CGUIPanelContainer::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
@@ -54,8 +41,9 @@ void CGUIPanelContainer::Process(unsigned int currentTime, CDirtyRegionList &dir
   int cacheBefore, cacheAfter;
   GetCacheOffsets(cacheBefore, cacheAfter);
 
-  // Free memory not used on screen at the moment, do this first so there's more memory for the new items.
-  FreeMemory(CorrectOffset(offset - cacheBefore, 0), CorrectOffset(offset + cacheAfter + m_itemsPerPage + 1, 0));
+  // Free memory not used on screen
+  if ((int)m_items.size() > m_itemsPerPage + cacheBefore + cacheAfter)
+    FreeMemory(CorrectOffset(offset - cacheBefore, 0), CorrectOffset(offset + m_itemsPerPage + 1 + cacheAfter, 0));
 
   CPoint origin = CPoint(m_posX, m_posY) + m_renderOffset;
   float pos = (m_orientation == VERTICAL) ? origin.y : origin.x;
@@ -75,9 +63,9 @@ void CGUIPanelContainer::Process(unsigned int currentTime, CDirtyRegionList &dir
       bool focused = (current == GetOffset() * m_itemsPerRow + GetCursor()) && m_bHasFocus;
 
       if (m_orientation == VERTICAL)
-        ProcessItem(origin.x + col * m_layout->Size(HORIZONTAL), pos, item.get(), focused, currentTime, dirtyregions);
+        ProcessItem(origin.x + col * m_layout->Size(HORIZONTAL), pos, item, focused, currentTime, dirtyregions);
       else
-        ProcessItem(pos, origin.y + col * m_layout->Size(VERTICAL), item.get(), focused, currentTime, dirtyregions);
+        ProcessItem(pos, origin.y + col * m_layout->Size(VERTICAL), item, focused, currentTime, dirtyregions);
     }
     // increment our position
     if (col < m_itemsPerRow - 1)
@@ -90,7 +78,9 @@ void CGUIPanelContainer::Process(unsigned int currentTime, CDirtyRegionList &dir
     current++;
   }
 
-  UpdatePageControl(offset);
+  // when we are scrolling up, offset will become lower (integer division, see offset calc)
+  // to have same behaviour when scrolling down, we need to set page control to offset+1
+  UpdatePageControl(offset + (m_scroller.IsScrollingDown() ? 1 : 0));
 
   CGUIControl::Process(currentTime, dirtyregions);
 }
@@ -105,10 +95,7 @@ void CGUIPanelContainer::Render()
   int cacheBefore, cacheAfter;
   GetCacheOffsets(cacheBefore, cacheAfter);
 
-  // Free memory not used on screen at the moment, do this first so there's more memory for the new items.
-  FreeMemory(CorrectOffset(offset - cacheBefore, 0), CorrectOffset(offset + cacheAfter + m_itemsPerPage + 1, 0));
-
-  if (g_graphicsContext.SetClipRegion(m_posX, m_posY, m_width, m_height))
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().SetClipRegion(m_posX, m_posY, m_width, m_height))
   {
     CPoint origin = CPoint(m_posX, m_posY) + m_renderOffset;
     float pos = (m_orientation == VERTICAL) ? origin.y : origin.x;
@@ -163,7 +150,7 @@ void CGUIPanelContainer::Render()
         RenderItem(focusedPos, origin.y + focusedCol * m_layout->Size(VERTICAL), focusedItem.get(), true);
     }
 
-    g_graphicsContext.RestoreClipRegion();
+    CServiceBroker::GetWinSystem()->GetGfxContext().RestoreClipRegion();
   }
   CGUIControl::Render();
 }
@@ -258,7 +245,8 @@ bool CGUIPanelContainer::OnMessage(CGUIMessage& message)
 
 void CGUIPanelContainer::OnLeft()
 {
-  bool wrapAround = m_actionLeft.GetNavigation() == GetID() || !m_actionLeft.HasActionsMeetingCondition();
+  CGUIAction action = GetAction(ACTION_MOVE_LEFT);
+  bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL && MoveLeft(wrapAround))
     return;
   if (m_orientation == HORIZONTAL && MoveUp(wrapAround))
@@ -268,7 +256,8 @@ void CGUIPanelContainer::OnLeft()
 
 void CGUIPanelContainer::OnRight()
 {
-  bool wrapAround = m_actionRight.GetNavigation() == GetID() || !m_actionRight.HasActionsMeetingCondition();
+  CGUIAction action = GetAction(ACTION_MOVE_RIGHT);
+  bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL && MoveRight(wrapAround))
     return;
   if (m_orientation == HORIZONTAL && MoveDown(wrapAround))
@@ -278,7 +267,8 @@ void CGUIPanelContainer::OnRight()
 
 void CGUIPanelContainer::OnUp()
 {
-  bool wrapAround = m_actionUp.GetNavigation() == GetID() || !m_actionUp.HasActionsMeetingCondition();
+  CGUIAction action = GetAction(ACTION_MOVE_UP);
+  bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL && MoveUp(wrapAround))
     return;
   if (m_orientation == HORIZONTAL && MoveLeft(wrapAround))
@@ -288,7 +278,8 @@ void CGUIPanelContainer::OnUp()
 
 void CGUIPanelContainer::OnDown()
 {
-  bool wrapAround = m_actionDown.GetNavigation() == GetID() || !m_actionDown.HasActionsMeetingCondition();
+  CGUIAction action = GetAction(ACTION_MOVE_DOWN);
+  bool wrapAround = action.GetNavigation() == GetID() || !action.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL && MoveDown(wrapAround))
     return;
   if (m_orientation == HORIZONTAL && MoveRight(wrapAround))
@@ -331,7 +322,7 @@ bool CGUIPanelContainer::MoveUp(bool wrapAround)
   else if (wrapAround)
   { // move last item in list in this column
     SetCursor((GetCursor() % m_itemsPerRow) + (m_itemsPerPage - 1) * m_itemsPerRow);
-    int offset = max((int)GetRows() - m_itemsPerPage, 0);
+    int offset = std::max((int)GetRows() - m_itemsPerPage, 0);
     // should check here whether cursor is actually allowed here, and reduce accordingly
     if (offset * m_itemsPerRow + GetCursor() >= (int)m_items.size())
       SetCursor((int)m_items.size() - offset * m_itemsPerRow - 1);
@@ -485,12 +476,24 @@ bool CGUIPanelContainer::SelectItemFromPoint(const CPoint &point)
   return true;
 }
 
+int CGUIPanelContainer::GetCurrentRow() const
+{
+  return m_itemsPerRow > 0 ? GetCursor() / m_itemsPerRow : 0;
+}
+
+int CGUIPanelContainer::GetCurrentColumn() const
+{
+  return GetCursor() % m_itemsPerRow;
+}
+
 bool CGUIPanelContainer::GetCondition(int condition, int data) const
-{ // probably only works vertically atm...
-  int row = GetCursor() / m_itemsPerRow;
-  int col = GetCursor() % m_itemsPerRow;
+{
+  int row = GetCurrentRow();
+  int col = GetCurrentColumn();
+
   if (m_orientation == HORIZONTAL)
-    swap(row, col);
+    std::swap(row, col);
+
   switch (condition)
   {
   case CONTAINER_ROW:
@@ -500,6 +503,26 @@ bool CGUIPanelContainer::GetCondition(int condition, int data) const
   default:
     return CGUIBaseContainer::GetCondition(condition, data);
   }
+}
+
+std::string CGUIPanelContainer::GetLabel(int info) const
+{
+  int row = GetCurrentRow();
+  int col = GetCurrentColumn();
+
+  if (m_orientation == HORIZONTAL)
+    std::swap(row, col);
+
+  switch (info)
+  {
+  case CONTAINER_ROW:
+    return StringUtils::Format("%i", row);
+  case CONTAINER_COLUMN:
+    return StringUtils::Format("%i", col);
+  default:
+    return CGUIBaseContainer::GetLabel(info);
+  }
+  return StringUtils::Empty;
 }
 
 void CGUIPanelContainer::SelectItem(int item)

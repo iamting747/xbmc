@@ -1,32 +1,24 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIDialogAccessPoints.h"
-#include "dialogs/GUIDialogKeyboard.h"
-#ifdef _LINUX
-#include "linux/NetworkLinux.h"
+#include "guilib/GUIMessage.h"
+#include "guilib/GUIKeyboardFactory.h"
+#if defined(TARGET_ANDROID)
+#include "platform/android/network/NetworkAndroid.h"
+#elif defined(TARGET_POSIX)
+#include "platform/linux/network/NetworkLinux.h"
 #endif
-#include "Application.h"
+#include "ServiceBroker.h"
 #include "FileItem.h"
+#include "input/Key.h"
 #include "guilib/LocalizeStrings.h"
+#include "utils/Variant.h"
 
 #define CONTROL_ACCESS_POINTS 3
 
@@ -52,7 +44,7 @@ bool CGUIDialogAccessPoints::OnAction(const CAction &action)
     if (iItem == (int) m_aps.size())
     {
        m_selectedAPEssId = "";
-       if (CGUIDialogKeyboard::ShowAndGetInput(m_selectedAPEssId, g_localizeStrings.Get(789), false))
+       if (CGUIKeyboardFactory::ShowAndGetInput(m_selectedAPEssId, CVariant{g_localizeStrings.Get(789)}, false))
        {
          m_selectedAPEncMode = m_aps[iItem].getEncryptionMode();
          m_wasItemSelected = true;
@@ -84,8 +76,8 @@ void CGUIDialogAccessPoints::OnInitWindow()
 
   m_accessPoints->Clear();
 
-  CStdString ifaceName(m_interfaceName);
-  CNetworkInterface* iface = g_application.getNetwork().GetInterfaceByName(ifaceName);
+  std::string ifaceName(m_interfaceName);
+  CNetworkInterface* iface = CServiceBroker::GetNetwork().GetInterfaceByName(ifaceName);
   m_aps = iface->GetAccessPoints();
 
   for (int i = 0; i < (int) m_aps.size(); i++)
@@ -93,11 +85,11 @@ void CGUIDialogAccessPoints::OnInitWindow()
       CFileItemPtr item(new CFileItem(m_aps[i].getEssId()));
 
       int q = m_aps[i].getQuality();
-      if (q <= 20) item->SetThumbnailImage("ap-signal1.png");
-      else if (q <= 40) item->SetThumbnailImage("ap-signal2.png");
-      else if (q <= 60) item->SetThumbnailImage("ap-signal3.png");
-      else if (q <= 80) item->SetThumbnailImage("ap-signal4.png");
-      else if (q <= 100) item->SetThumbnailImage("ap-signal5.png");
+      if (q <= 20) item->SetArt("thumb", "ap-signal1.png");
+      else if (q <= 40) item->SetArt("thumb", "ap-signal2.png");
+      else if (q <= 60) item->SetArt("thumb", "ap-signal3.png");
+      else if (q <= 80) item->SetArt("thumb", "ap-signal4.png");
+      else if (q <= 100) item->SetArt("thumb", "ap-signal5.png");
 
       if (m_aps[i].getEncryptionMode() != ENC_NONE)
          item->SetIconImage("ap-lock.png");
@@ -112,12 +104,12 @@ void CGUIDialogAccessPoints::OnInitWindow()
   OnMessage(msg);
 }
 
-void CGUIDialogAccessPoints::SetInterfaceName(CStdString interfaceName)
+void CGUIDialogAccessPoints::SetInterfaceName(std::string interfaceName)
 {
   m_interfaceName = interfaceName;
 }
 
-CStdString CGUIDialogAccessPoints::GetSelectedAccessPointEssId()
+std::string CGUIDialogAccessPoints::GetSelectedAccessPointEssId()
 {
   return m_selectedAPEssId;
 }

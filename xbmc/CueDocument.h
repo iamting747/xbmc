@@ -1,86 +1,68 @@
-#pragma once
-
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include <string>
+#include <vector>
+
 #include "music/Song.h"
-#include "filesystem/File.h"
 
 #define MAX_PATH_SIZE 1024
+
+class CueReader;
 
 class CCueDocument
 {
   class CCueTrack
   {
   public:
-    CCueTrack()
-    {
-      iTrackNumber = 0;
-      iStartTime = 0;
-      iEndTime = 0;
-      replayGainTrackGain = 0.0f;
-      replayGainTrackPeak = 0.0f;
-    }
-    CStdString strArtist;
-    CStdString strTitle;
-    CStdString strFile;
-    int iTrackNumber;
-    int iStartTime;
-    int iEndTime;
-    float replayGainTrackGain;
-    float replayGainTrackPeak;
+    std::string strArtist;
+    std::string strTitle;
+    std::string strFile;
+    int iTrackNumber = 0;
+    int iStartTime = 0;
+    int iEndTime = 0;
+    ReplayGain::Info replayGain;
   };
-
 public:
-  CCueDocument(void);
   ~CCueDocument(void);
   // USED
-  bool Parse(const CStdString &strFile);
+  bool ParseFile(const std::string &strFilePath);
+  bool ParseTag(const std::string &strContent);
   void GetSongs(VECSONGS &songs);
-  CStdString GetMediaPath();
-  CStdString GetMediaTitle();
-  void GetMediaFiles(std::vector<CStdString>& mediaFiles);
-
+  std::string GetMediaPath();
+  std::string GetMediaTitle();
+  void GetMediaFiles(std::vector<std::string>& mediaFiles);
+  void UpdateMediaFile(const std::string& oldMediaFile, const std::string& mediaFile);
+  bool IsOneFilePerTrack() const;
+  bool IsLoaded() const;
 private:
-
-  // USED for file access
-  XFILE::CFile m_file;
-  char m_szBuffer[1024];
+  void Clear();
+  bool Parse(CueReader& reader, const std::string& strFile = std::string());
 
   // Member variables
-  CStdString m_strArtist;  // album artist
-  CStdString m_strAlbum;  // album title
-  CStdString m_strGenre;  // album genre
-  int m_iYear;            //album year
-  int m_iTrack;   // current track
-  int m_iTotalTracks;  // total tracks
-  float m_replayGainAlbumGain;
-  float m_replayGainAlbumPeak;
+  std::string m_strArtist;  // album artist
+  std::string m_strAlbum;  // album title
+  std::string m_strGenre;  // album genre
+  int m_iYear = 0;            //album year
+  int m_iTrack = 0;   // current track
+  int m_iDiscNumber = 0;  // Disc number
+  ReplayGain::Info m_albumReplayGain;
+
+  bool m_bOneFilePerTrack = false;
 
   // cuetrack array
-  std::vector<CCueTrack> m_Track;
+  typedef std::vector<CCueTrack> Tracks;
+  Tracks m_tracks;
 
-  bool ReadNextLine(CStdString &strLine);
-  bool ExtractQuoteInfo(const CStdString &line, CStdString &quote);
-  int ExtractTimeFromIndex(const CStdString &index);
-  int ExtractNumericInfo(const CStdString &info);
-  bool ResolvePath(CStdString &strPath, const CStdString &strBase);
+  std::string ExtractInfo(const std::string &line);
+  int ExtractTimeFromIndex(const std::string &index);
+  int ExtractNumericInfo(const std::string &info);
+  bool ResolvePath(std::string &strPath, const std::string &strBase);
 };

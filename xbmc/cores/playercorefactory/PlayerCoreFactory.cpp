@@ -1,291 +1,335 @@
 /*
- *      Copyright (C) 2005-2008 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/BitstreamStats.h"
 #include "PlayerCoreFactory.h"
 #include "threads/SingleLock.h"
-#include "cores/dvdplayer/DVDPlayer.h"
 #include "cores/paplayer/PAPlayer.h"
-#include "cores/paplayer/DVDPlayerCodec.h"
+#include "cores/IPlayerCallback.h"
 #include "dialogs/GUIDialogContextMenu.h"
-#include "utils/HttpHeader.h"
-#include "settings/GUISettings.h"
 #include "URL.h"
 #include "FileItem.h"
+#include "profiles/ProfileManager.h"
+#include "settings/lib/SettingsManager.h"
 #include "settings/AdvancedSettings.h"
-#include "utils/AutoPtrHandle.h"
-#include "cores/ExternalPlayer/ExternalPlayer.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "PlayerCoreConfig.h"
 #include "PlayerSelectionRule.h"
 #include "guilib/LocalizeStrings.h"
+#include "utils/StringUtils.h"
+#include "utils/XMLUtils.h"
+#include <sstream>
 
-using namespace AUTOPTR;
+#define PLAYERCOREFACTORY_XML "playercorefactory.xml"
 
-std::vector<CPlayerCoreConfig *> CPlayerCoreFactory::s_vecCoreConfigs;
-std::vector<CPlayerSelectionRule *> CPlayerCoreFactory::s_vecCoreSelectionRules;
+CPlayerCoreFactory::CPlayerCoreFactory(const CProfileManager &profileManager) :
+  m_profileManager(profileManager)
+{
+  m_settings = CServiceBroker::GetSettingsComponent()->GetSettings();
 
-CPlayerCoreFactory::CPlayerCoreFactory()
-{}
+  if (m_settings->IsLoaded())
+    OnSettingsLoaded();
+
+  m_settings->GetSettingsManager()->RegisterSettingsHandler(this);
+}
+
 CPlayerCoreFactory::~CPlayerCoreFactory()
 {
-  for(std::vector<CPlayerCoreConfig *>::iterator it = s_vecCoreConfigs.begin(); it != s_vecCoreConfigs.end(); it++)
+  m_settings->GetSettingsManager()->UnregisterSettingsHandler(this);
+
+  for(std::vector<CPlayerCoreConfig *>::iterator it = m_vecPlayerConfigs.begin(); it != m_vecPlayerConfigs.end(); ++it)
     delete *it;
-  for(std::vector<CPlayerSelectionRule *>::iterator it = s_vecCoreSelectionRules.begin(); it != s_vecCoreSelectionRules.end(); it++)
+  for(std::vector<CPlayerSelectionRule *>::iterator it = m_vecCoreSelectionRules.begin(); it != m_vecCoreSelectionRules.end(); ++it)
     delete *it;
 }
 
-/* generic function to make a vector unique, removes later duplicates */
-template<typename T> void unique (T &con)
+void CPlayerCoreFactory::OnSettingsLoaded()
 {
-  typename T::iterator cur, end;
-  cur = con.begin();
-  end = con.end();
-  while (cur != end)
+  LoadConfiguration("special://xbmc/system/" PLAYERCOREFACTORY_XML, true);
+  LoadConfiguration(m_profileManager.GetUserDataItem(PLAYERCOREFACTORY_XML), false);
+}
+
+IPlayer* CPlayerCoreFactory::CreatePlayer(const std::string& nameId, IPlayerCallback& callback) const
+{
+  CSingleLock lock(m_section);
+  size_t idx = GetPlayerIndex(nameId);
+
+  if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
+    return nullptr;
+
+  return m_vecPlayerConfigs[idx]->CreatePlayer(callback);
+}
+
+void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players) const
+{
+  CSingleLock lock(m_section);
+  players.clear();
+  for (auto conf: m_vecPlayerConfigs)
   {
-    typename T::value_type i = *cur;
-    end = remove (++cur, end, i);
+    if (conf->m_bPlaysAudio || conf->m_bPlaysVideo)
+      players.push_back(conf->m_name);
   }
-  con.erase (end, con.end());
 }
 
-IPlayer* CPlayerCoreFactory::CreatePlayer(const CStdString& strCore, IPlayerCallback& callback) const
+void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players, const bool audio, const bool video) const
 {
-  return CreatePlayer( GetPlayerCore(strCore), callback );
-}
-
-IPlayer* CPlayerCoreFactory::CreatePlayer(const PLAYERCOREID eCore, IPlayerCallback& callback)
-{
-  if (!s_vecCoreConfigs.size() || eCore-1 > s_vecCoreConfigs.size()-1)
-    return NULL;
-
-  return s_vecCoreConfigs[eCore-1]->CreatePlayer(callback);
-}
-
-PLAYERCOREID CPlayerCoreFactory::GetPlayerCore(const CStdString& strCoreName)
-{
-  if (!strCoreName.empty())
-  {
-    // Dereference "*default*player" aliases
-    CStdString strRealCoreName;
-    if (strCoreName.Equals("audiodefaultplayer", false)) strRealCoreName = g_advancedSettings.m_audioDefaultPlayer;
-    else if (strCoreName.Equals("videodefaultplayer", false)) strRealCoreName = g_advancedSettings.m_videoDefaultPlayer;
-    else if (strCoreName.Equals("videodefaultdvdplayer", false)) strRealCoreName = g_advancedSettings.m_videoDefaultDVDPlayer;
-    else strRealCoreName = strCoreName;
-
-    for(PLAYERCOREID i = 0; i < s_vecCoreConfigs.size(); i++)
-    {
-      if (s_vecCoreConfigs[i]->GetName().Equals(strRealCoreName, false))
-        return i+1;
-    }
-    CLog::Log(LOGWARNING, "CPlayerCoreFactory::GetPlayerCore(%s): no such core: %s", strCoreName.c_str(), strRealCoreName.c_str());
-  }
-  return EPC_NONE;
-}
-
-CStdString CPlayerCoreFactory::GetPlayerName(const PLAYERCOREID eCore)
-{
-  return s_vecCoreConfigs[eCore-1]->GetName();
-}
-
-CPlayerCoreConfig* CPlayerCoreFactory::GetPlayerConfig(const CStdString& strCoreName)
-{
-  PLAYERCOREID id = GetPlayerCore(strCoreName);
-  if (id != EPC_NONE) return s_vecCoreConfigs[id-1];
-  else return NULL;
-}
-
-void CPlayerCoreFactory::GetPlayers( VECPLAYERCORES &vecCores )
-{
-  for(unsigned int i = 0; i < s_vecCoreConfigs.size(); i++)
-    if (s_vecCoreConfigs[i]->m_bPlaysAudio || s_vecCoreConfigs[i]->m_bPlaysVideo)
-      vecCores.push_back(i+1);
-}
-
-void CPlayerCoreFactory::GetPlayers( VECPLAYERCORES &vecCores, const bool audio, const bool video )
-{
+  CSingleLock lock(m_section);
   CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: for video=%d, audio=%d", video, audio);
 
-  for(unsigned int i = 0; i < s_vecCoreConfigs.size(); i++)
+  for (auto conf: m_vecPlayerConfigs)
   {
-    if (audio == s_vecCoreConfigs[i]->m_bPlaysAudio && video == s_vecCoreConfigs[i]->m_bPlaysVideo)
+    if (audio == conf->m_bPlaysAudio && video == conf->m_bPlaysVideo)
     {
-      CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding player: %s (%d)", s_vecCoreConfigs[i]->m_name.c_str(), i+1);
-      vecCores.push_back(i+1);
+      if (std::find(players.begin(), players.end(), conf->m_name) != players.end())
+        continue;
+
+      CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding player: %s", conf->m_name.c_str());
+      players.push_back(conf->m_name);
     }
   }
 }
 
-void CPlayerCoreFactory::GetPlayers( const CFileItem& item, VECPLAYERCORES &vecCores)
+void CPlayerCoreFactory::GetPlayers(const CFileItem& item, std::vector<std::string>&players) const
 {
-  CURL url(item.GetPath());
+  CURL url(item.GetDynPath());
 
-  CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers(%s)", item.GetPath().c_str());
+  CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers(%s)", CURL::GetRedacted(item.GetDynPath()).c_str());
+
+  std::vector<std::string>validPlayers;
+  GetPlayers(validPlayers);
 
   // Process rules
-  for(unsigned int i = 0; i < s_vecCoreSelectionRules.size(); i++)
-    s_vecCoreSelectionRules[i]->GetPlayers(item, vecCores);
+  for (auto rule: m_vecCoreSelectionRules)
+    rule->GetPlayers(item, validPlayers, players);
 
-  CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: matched %"PRIuS" rules with players", vecCores.size());
-
-  if( PAPlayer::HandlesType(url.GetFileType()) )
-  {
-    // We no longer force PAPlayer as our default audio player (used to be true):
-    bool bAdd = false;
-    if (url.GetProtocol().Equals("mms"))
-    {
-       bAdd = false;
-    }
-    else if (item.IsType(".wma"))
-    {
-//      bAdd = true;
-//      DVDPlayerCodec codec;
-//      if (!codec.Init(item.GetPath(),2048))
-//        bAdd = false;
-//      codec.DeInit();
-    }
-
-    if (bAdd)
-    {
-      if( g_guiSettings.GetInt("audiooutput.mode") == AUDIO_ANALOG )
-      {
-        CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding PAPlayer (%d)", EPC_PAPLAYER);
-        vecCores.push_back(EPC_PAPLAYER);
-      }
-      else if (url.GetFileType().Equals("ac3") 
-            || url.GetFileType().Equals("dts"))
-      {
-        CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding DVDPlayer (%d)", EPC_DVDPLAYER);
-        vecCores.push_back(EPC_DVDPLAYER);
-      }
-      else
-      {
-        CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding PAPlayer (%d)", EPC_PAPLAYER);
-        vecCores.push_back(EPC_PAPLAYER);
-      }
-    }
-  }
+  CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: matched {0} rules with players", players.size());
 
   // Process defaults
 
-  // Set video default player. Check whether it's video first (overrule audio check)
-  // Also push these players in case it is NOT audio either
-  if (item.IsVideo() || !item.IsAudio())
+  // Set video default player. Check whether it's video first (overrule audio and
+  // game check). Also push these players in case it is NOT audio or game either.
+  if (item.IsVideo() || (!item.IsAudio() && !item.IsGame()))
   {
-    PLAYERCOREID eVideoDefault = GetPlayerCore("videodefaultplayer");
-    if (eVideoDefault != EPC_NONE)
+    int idx = GetPlayerIndex("videodefaultplayer");
+    if (idx > -1)
     {
-      CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding videodefaultplayer (%d)", eVideoDefault);
-      vecCores.push_back(eVideoDefault);
+      std::string eVideoDefault = GetPlayerName(idx);
+      CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding videodefaultplayer (%s)", eVideoDefault.c_str());
+      players.push_back(eVideoDefault);
     }
-    GetPlayers(vecCores, false, true);  // Video-only players
-    GetPlayers(vecCores, true, true);   // Audio & video players
+    GetPlayers(players, false, true);  // Video-only players
+    GetPlayers(players, true, true);   // Audio & video players
   }
 
   // Set audio default player
   // Pushback all audio players in case we don't know the type
   if (item.IsAudio())
   {
-    PLAYERCOREID eAudioDefault = GetPlayerCore("audiodefaultplayer");
-    if (eAudioDefault != EPC_NONE)
+    int idx = GetPlayerIndex("audiodefaultplayer");
+    if (idx > -1)
     {
-      CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding audiodefaultplayer (%d)", eAudioDefault);
-      vecCores.push_back(eAudioDefault);
+      std::string eAudioDefault = GetPlayerName(idx);
+      CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding audiodefaultplayer (%s)", eAudioDefault.c_str());
+        players.push_back(eAudioDefault);
     }
-    GetPlayers(vecCores, true, false); // Audio-only players
-    GetPlayers(vecCores, true, true);  // Audio & video players
+    GetPlayers(players, true, false); // Audio-only players
+    GetPlayers(players, true, true);  // Audio & video players
   }
 
-  /* make our list unique, preserving first added players */
-  unique(vecCores);
+  if (item.IsGame())
+  {
+    CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding retroplayer");
+    players.push_back("RetroPlayer");
+  }
 
-  CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: added %"PRIuS" players", vecCores.size());
+  CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: added {0} players", players.size());
 }
 
-PLAYERCOREID CPlayerCoreFactory::GetDefaultPlayer( const CFileItem& item )
+int CPlayerCoreFactory::GetPlayerIndex(const std::string& strCoreName) const
 {
-  VECPLAYERCORES vecCores;
-  GetPlayers(item, vecCores);
+  CSingleLock lock(m_section);
+  if (!strCoreName.empty())
+  {
+    // Dereference "*default*player" aliases
+    std::string strRealCoreName;
+    if (StringUtils::EqualsNoCase(strCoreName, "audiodefaultplayer"))
+      strRealCoreName = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_audioDefaultPlayer;
+    else if (StringUtils::EqualsNoCase(strCoreName, "videodefaultplayer"))
+      strRealCoreName = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoDefaultPlayer;
+    else
+      strRealCoreName = strCoreName;
+
+    for(size_t i = 0; i < m_vecPlayerConfigs.size(); i++)
+    {
+      if (StringUtils::EqualsNoCase(m_vecPlayerConfigs[i]->GetName(), strRealCoreName))
+        return i;
+    }
+    CLog::Log(LOGWARNING, "CPlayerCoreFactory::GetPlayer(%s): no such player: %s", strCoreName.c_str(), strRealCoreName.c_str());
+  }
+  return -1;
+}
+
+std::string CPlayerCoreFactory::GetPlayerName(size_t idx) const
+{
+  CSingleLock lock(m_section);
+  if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
+    return "";
+
+  return m_vecPlayerConfigs[idx]->m_name;
+}
+
+void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players, std::string &type) const
+{
+  CSingleLock lock(m_section);
+  for (auto config: m_vecPlayerConfigs)
+  {
+    if (config->m_type != type)
+      continue;
+    players.push_back(config->m_name);
+  }
+}
+
+void CPlayerCoreFactory::GetRemotePlayers(std::vector<std::string>&players) const
+{
+  CSingleLock lock(m_section);
+  for (auto config: m_vecPlayerConfigs)
+  {
+    if (config->m_type != "remote")
+      continue;
+    players.push_back(config->m_name);
+  }
+}
+
+std::string CPlayerCoreFactory::GetPlayerType(const std::string& player) const
+{
+  CSingleLock lock(m_section);
+  size_t idx = GetPlayerIndex(player);
+
+  if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
+    return "";
+
+  return m_vecPlayerConfigs[idx]->m_type;
+}
+
+bool CPlayerCoreFactory::PlaysAudio(const std::string& player) const
+{
+  CSingleLock lock(m_section);
+  size_t idx = GetPlayerIndex(player);
+
+  if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
+    return false;
+
+  return m_vecPlayerConfigs[idx]->m_bPlaysAudio;
+}
+
+bool CPlayerCoreFactory::PlaysVideo(const std::string& player) const
+{
+  CSingleLock lock(m_section);
+  size_t idx = GetPlayerIndex(player);
+
+  if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
+    return false;
+
+  return m_vecPlayerConfigs[idx]->m_bPlaysVideo;
+}
+
+std::string CPlayerCoreFactory::GetDefaultPlayer(const CFileItem& item) const
+{
+  std::vector<std::string>players;
+  GetPlayers(item, players);
 
   //If we have any players return the first one
-  if( vecCores.size() > 0 ) return vecCores.at(0);
+  if (!players.empty())
+    return players.at(0);
 
-  return EPC_NONE;
+  return "";
 }
 
-PLAYERCOREID CPlayerCoreFactory::SelectPlayerDialog(VECPLAYERCORES &vecCores, float posX, float posY)
+std::string CPlayerCoreFactory::SelectPlayerDialog(const std::vector<std::string>&players, float posX, float posY) const
 {
   CContextButtons choices;
-  if (vecCores.size())
+  if (players.size())
   {
     //Add default player
-    CStdString strCaption = CPlayerCoreFactory::GetPlayerName(vecCores[0]);
+    std::string strCaption = players[0];
     strCaption += " (";
     strCaption += g_localizeStrings.Get(13278);
     strCaption += ")";
     choices.Add(0, strCaption);
 
     //Add all other players
-    for( unsigned int i = 1; i < vecCores.size(); i++ )
-      choices.Add(i, CPlayerCoreFactory::GetPlayerName(vecCores[i]));
+    for (unsigned int i = 1; i < players.size(); i++)
+      choices.Add(i, players[i]);
 
     int choice = CGUIDialogContextMenu::ShowAndGetChoice(choices);
     if (choice >= 0)
-      return vecCores[choice];
+      return players[choice];
   }
-  return EPC_NONE;
+  return "";
 }
 
-PLAYERCOREID CPlayerCoreFactory::SelectPlayerDialog(float posX, float posY)
+std::string CPlayerCoreFactory::SelectPlayerDialog(float posX, float posY) const
 {
-  VECPLAYERCORES vecCores;
-  GetPlayers(vecCores);
-  return SelectPlayerDialog(vecCores, posX, posY);
+  std::vector<std::string>players;
+  GetPlayers(players);
+  return SelectPlayerDialog(players, posX, posY);
 }
 
-bool CPlayerCoreFactory::LoadConfiguration(TiXmlElement* pConfig, bool clear)
+bool CPlayerCoreFactory::LoadConfiguration(const std::string &file, bool clear)
 {
+  CSingleLock lock(m_section);
+
+  CLog::Log(LOGNOTICE, "Loading player core factory settings from %s.", file.c_str());
+  if (!XFILE::CFile::Exists(file))
+  { // tell the user it doesn't exist
+    CLog::Log(LOGNOTICE, "%s does not exist. Skipping.", file.c_str());
+    return false;
+  }
+
+  CXBMCTinyXML playerCoreFactoryXML;
+  if (!playerCoreFactoryXML.LoadFile(file))
+  {
+    CLog::Log(LOGERROR, "Error loading %s, Line %d (%s)", file.c_str(), playerCoreFactoryXML.ErrorRow(), playerCoreFactoryXML.ErrorDesc());
+    return false;
+  }
+
+  TiXmlElement *pConfig = playerCoreFactoryXML.RootElement();
+  if (pConfig == NULL)
+  {
+    CLog::Log(LOGERROR, "Error loading %s, Bad structure", file.c_str());
+    return false;
+  }
+
   if (clear)
   {
-    for(std::vector<CPlayerCoreConfig *>::iterator it = s_vecCoreConfigs.begin(); it != s_vecCoreConfigs.end(); it++)
-      delete *it;
-    s_vecCoreConfigs.clear();
-    // Builtin players; hard-coded because re-ordering them would break scripts
-    CPlayerCoreConfig* dvdplayer = new CPlayerCoreConfig("DVDPlayer", EPC_DVDPLAYER, NULL);
-    dvdplayer->m_bPlaysAudio = dvdplayer->m_bPlaysVideo = true;
-    s_vecCoreConfigs.push_back(dvdplayer);
+    for (auto config: m_vecPlayerConfigs)
+      delete config;
+    m_vecPlayerConfigs.clear();
 
-     // Don't remove this, its a placeholder for the old MPlayer core, it would break scripts
-    CPlayerCoreConfig* mplayer = new CPlayerCoreConfig("oldmplayercore", EPC_DVDPLAYER, NULL);
-    s_vecCoreConfigs.push_back(mplayer);
+    for (auto rule: m_vecCoreSelectionRules)
+      delete rule;
+    m_vecCoreSelectionRules.clear();
 
-    CPlayerCoreConfig* paplayer = new CPlayerCoreConfig("PAPlayer", EPC_PAPLAYER, NULL);
+    // Builtin players
+    CPlayerCoreConfig* VideoPlayer = new CPlayerCoreConfig("VideoPlayer", "video", nullptr);
+    VideoPlayer->m_bPlaysAudio = true;
+    VideoPlayer->m_bPlaysVideo = true;
+    m_vecPlayerConfigs.push_back(VideoPlayer);
+
+    CPlayerCoreConfig* paplayer = new CPlayerCoreConfig("PAPlayer", "music", nullptr);
     paplayer->m_bPlaysAudio = true;
-    s_vecCoreConfigs.push_back(paplayer);
+    m_vecPlayerConfigs.push_back(paplayer);
 
-    for(std::vector<CPlayerSelectionRule *>::iterator it = s_vecCoreSelectionRules.begin(); it != s_vecCoreSelectionRules.end(); it++)
-      delete *it;
-    s_vecCoreSelectionRules.clear();
+    CPlayerCoreConfig* retroPlayer = new CPlayerCoreConfig("RetroPlayer", "game", nullptr);
+    m_vecPlayerConfigs.push_back(retroPlayer);
   }
 
-  if (!pConfig || strcmpi(pConfig->Value(),"playercorefactory") != 0)
+  if (!pConfig || strcmpi(pConfig->Value(), "playercorefactory") != 0)
   {
     CLog::Log(LOGERROR, "Error loading configuration, no <playercorefactory> node");
     return false;
@@ -297,19 +341,32 @@ bool CPlayerCoreFactory::LoadConfiguration(TiXmlElement* pConfig, bool clear)
     TiXmlElement* pPlayer = pPlayers->FirstChildElement("player");
     while (pPlayer)
     {
-      CStdString name = pPlayer->Attribute("name");
-      CStdString type = pPlayer->Attribute("type");
-      if (type.length() == 0) type = name;
-      type.ToLower();
+      std::string name = XMLUtils::GetAttribute(pPlayer, "name");
+      std::string type = XMLUtils::GetAttribute(pPlayer, "type");
+      if (type.empty()) type = name;
+      StringUtils::ToLower(type);
 
-      EPLAYERCORES eCore = EPC_NONE;
-      if (type == "dvdplayer" || type == "mplayer") eCore = EPC_DVDPLAYER;
-      if (type == "paplayer" ) eCore = EPC_PAPLAYER;
-      if (type == "externalplayer" ) eCore = EPC_EXTPLAYER;
+      std::string internaltype;
+      if (type == "videoplayer")
+        internaltype = "video";
+      else if (type == "paplayer")
+        internaltype = "music";
+      else if (type == "externalplayer")
+        internaltype = "external";
 
-      if (eCore != EPC_NONE)
+      int count = 0;
+      std::string playername = name;
+      while (GetPlayerIndex(playername) >= 0)
       {
-        s_vecCoreConfigs.push_back(new CPlayerCoreConfig(name, eCore, pPlayer));
+        count++;
+        std::stringstream itoa;
+        itoa << count;
+        playername = name + itoa.str();
+      }
+
+      if (!internaltype.empty())
+      {
+        m_vecPlayerConfigs.push_back(new CPlayerCoreConfig(playername, internaltype, pPlayer));
       }
 
       pPlayer = pPlayer->NextSiblingElement("player");
@@ -324,21 +381,21 @@ bool CPlayerCoreFactory::LoadConfiguration(TiXmlElement* pConfig, bool clear)
     {
       if (stricmp(szAction, "append") == 0)
       {
-        s_vecCoreSelectionRules.push_back(new CPlayerSelectionRule(pRule));
+        m_vecCoreSelectionRules.push_back(new CPlayerSelectionRule(pRule));
       }
       else if (stricmp(szAction, "prepend") == 0)
       {
-        s_vecCoreSelectionRules.insert(s_vecCoreSelectionRules.begin(), 1, new CPlayerSelectionRule(pRule));
+        m_vecCoreSelectionRules.insert(m_vecCoreSelectionRules.begin(), 1, new CPlayerSelectionRule(pRule));
       }
       else
       {
-        s_vecCoreSelectionRules.clear();
-        s_vecCoreSelectionRules.push_back(new CPlayerSelectionRule(pRule));
+        m_vecCoreSelectionRules.clear();
+        m_vecCoreSelectionRules.push_back(new CPlayerSelectionRule(pRule));
       }
     }
     else
     {
-      s_vecCoreSelectionRules.push_back(new CPlayerSelectionRule(pRule));
+      m_vecCoreSelectionRules.push_back(new CPlayerSelectionRule(pRule));
     }
 
     pRule = pRule->NextSiblingElement("rules");
@@ -348,4 +405,45 @@ bool CPlayerCoreFactory::LoadConfiguration(TiXmlElement* pConfig, bool clear)
   CLog::Log(LOGNOTICE, "Loaded playercorefactory configuration");
 
   return true;
+}
+
+void CPlayerCoreFactory::OnPlayerDiscovered(const std::string& id, const std::string& name)
+{
+  CSingleLock lock(m_section);
+  std::vector<CPlayerCoreConfig *>::iterator it;
+  for (it = m_vecPlayerConfigs.begin(); it != m_vecPlayerConfigs.end(); ++it)
+  {
+    if ((*it)->GetId() == id)
+    {
+      (*it)->m_name  = name;
+      (*it)->m_type = "remote";
+      return;
+    }
+  }
+
+  int count = 0;
+  std::string playername = name;
+  while (GetPlayerIndex(playername) >= 0)
+  {
+    count++;
+    std::stringstream itoa;
+    itoa << count;
+    playername = name + itoa.str();
+  }
+
+  CPlayerCoreConfig* player = new CPlayerCoreConfig(playername, "remote", nullptr, id);
+  player->m_bPlaysAudio = true;
+  player->m_bPlaysVideo = true;
+  m_vecPlayerConfigs.push_back(player);
+}
+
+void CPlayerCoreFactory::OnPlayerRemoved(const std::string& id)
+{
+  CSingleLock lock(m_section);
+  std::vector<CPlayerCoreConfig *>::iterator it;
+  for(it = m_vecPlayerConfigs.begin(); it != m_vecPlayerConfigs.end(); ++it)
+  {
+    if ((*it)->GetId() == id)
+      (*it)->m_type = "";
+  }
 }

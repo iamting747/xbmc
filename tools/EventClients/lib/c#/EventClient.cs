@@ -1,5 +1,5 @@
-﻿/*
- *  Copyright (C) 2008-2009 Team XBMC http://www.xbmc.org
+/*
+ *  Copyright (C) 2008-2013 Team XBMC
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -211,7 +211,7 @@ namespace XBMC
             try
             {
 
-                bool successfull = true;
+                bool successful = true;
                 int packetCount = (Payload.Length / MAX_PAYLOAD_SIZE) + 1;
                 int bytesToSend = 0;
                 int bytesSent = 0;
@@ -241,7 +241,7 @@ namespace XBMC
 
                     if (sendSize != (header.Length + bytesToSend))
                     {
-                        successfull = false;
+                        successful = false;
                         break;
                     }
 
@@ -249,7 +249,7 @@ namespace XBMC
 
                 }
 
-                return successfull;
+                return successful;
 
             }
             catch
